@@ -63,6 +63,7 @@ private:
   void declareAndLoadParameters();
   void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
   void timerCallback();
+  void tfTimerCallback();
 
   VelocityCommand clampTwist(const geometry_msgs::msg::Twist & msg) const;
   std::string encodeVelocityFrame(const VelocityCommand & cmd) const;
@@ -92,6 +93,7 @@ private:
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr tf_timer_;
 
   std::string port_;
   std::string imu_frame_id_ {"imu_link"};
@@ -100,6 +102,7 @@ private:
   int baudrate_ {115200};
   double cmd_timeout_sec_ {0.5};
   double publish_rate_hz_ {30.0};
+  double tf_publish_rate_hz_ {20.0};
   double max_vx_mps_ {1.5};
   double max_vy_mps_ {1.2};
   double max_wz_radps_ {6.28};

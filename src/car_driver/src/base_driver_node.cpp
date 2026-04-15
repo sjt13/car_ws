@@ -98,8 +98,8 @@ BaseDriverNode::BaseDriverNode()
   // 打印本次运行的关键参数，便于现场调试快速确认配置。
   RCLCPP_INFO(
     get_logger(),
-    "当前串口参数：port=%s baudrate=%d timeout=%.3fs rate=%.1fHz",
-    port_.c_str(), baudrate_, cmd_timeout_sec_, publish_rate_hz_);
+    "当前串口参数：port=%s baudrate=%d timeout=%.3fs rate=%.1fHz tf_rate=%.1fHz",
+    port_.c_str(), baudrate_, cmd_timeout_sec_, publish_rate_hz_, tf_publish_rate_hz_);
 
   // 按需求避免误用调试串口：如果检测到 /dev/ttyFIQ0，给出明确警告。
   if (port_ == "/dev/ttyFIQ0") {
@@ -135,6 +135,11 @@ BaseDriverNode::BaseDriverNode()
   // 创建周期定时器：负责发送、超时保护、串口重连和上行轮询。
   timer_ = create_wall_timer(period, std::bind(&BaseDriverNode::timerCallback, this));
 
+  // TF 使用独立定时器按固定频率广播，避免 RViz / 导航侧看到断续的一跳一跳。
+  const auto tf_period = std::chrono::duration_cast<std::chrono::nanoseconds>(
+    std::chrono::duration<double>(1.0 / tf_publish_rate_hz_));
+  tf_timer_ = create_wall_timer(tf_period, std::bind(&BaseDriverNode::tfTimerCallback, this));
+
   // 启动时先尝试打开一次串口；失败时不会崩溃，后续定时器会按间隔重试。
   (void)ensureSerialConnected();
 }
@@ -162,6 +167,8 @@ void BaseDriverNode::declareAndLoadParameters()
   declare_parameter<double>("cmd_timeout", 0.5);
   // 发送循环频率（Hz）：决定下行发送与超时检测频率。
   declare_parameter<double>("publish_rate", 30.0);
+  // TF 广播频率（Hz）：独立于上行遥测/odom 发布，保证 RViz 和导航栈观感更稳。
+  declare_parameter<double>("tf_publish_rate", 20.0);
   // x 方向最大线速度限幅（m/s）。
   declare_parameter<double>("max_vx", 1.5);
   // y 方向最大线速度限幅（m/s）。
@@ -182,6 +189,7 @@ void BaseDriverNode::declareAndLoadParameters()
   baudrate_ = get_parameter("baudrate").as_int();                     // 波特率
   cmd_timeout_sec_ = get_parameter("cmd_timeout").as_double();        // 超时阈值
   publish_rate_hz_ = get_parameter("publish_rate").as_double();       // 发送频率
+  tf_publish_rate_hz_ = get_parameter("tf_publish_rate").as_double(); // TF 广播频率
   max_vx_mps_ = get_parameter("max_vx").as_double();                  // vx 限幅
   max_vy_mps_ = get_parameter("max_vy").as_double();                  // vy 限幅
   max_wz_radps_ = get_parameter("max_wz").as_double();                // wz 限幅
@@ -194,6 +202,11 @@ void BaseDriverNode::declareAndLoadParameters()
   if (publish_rate_hz_ <= 0.0) {
     RCLCPP_WARN(get_logger(), "publish_rate <= 0 不合法，已回退到 30.0Hz");
     publish_rate_hz_ = 30.0;  // 回退到安全默认值
+  }
+  // 防御性校验：TF 广播频率不能 <= 0，否则 TF 定时器周期非法。
+  if (tf_publish_rate_hz_ <= 0.0) {
+    RCLCPP_WARN(get_logger(), "tf_publish_rate <= 0 不合法，已回退到 20.0Hz");
+    tf_publish_rate_hz_ = 20.0;
   }
   // 防御性校验：超时不能 <= 0，否则会一直判定超时。
   if (cmd_timeout_sec_ <= 0.0) {
@@ -217,6 +230,15 @@ void BaseDriverNode::declareAndLoadParameters()
     RCLCPP_WARN(get_logger(), "base_frame_id 为空，已回退到 base_link");
     base_frame_id_ = "base_link";
   }
+}
+
+// TF 定时器回调：固定频率重复广播当前 odom -> base_link，提升 RViz / tf 观感稳定性。
+void BaseDriverNode::tfTimerCallback()
+{
+  if (!odom_initialized_) {
+    return;
+  }
+  publishOdomTf(now());
 }
 
 // /cmd_vel 回调：只做“接收+限幅+缓存+更新时间戳”，不直接写串口。
@@ -823,7 +845,6 @@ void BaseDriverNode::updateOdom(
   msg.twist.covariance[7] = 0.05;
   msg.twist.covariance[35] = 0.1;
   odom_pub_->publish(msg);
-  publishOdomTf(stamp);
 }
 
 }  // namespace car_driver
