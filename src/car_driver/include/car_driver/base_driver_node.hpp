@@ -39,7 +39,7 @@ private:
     int32_t wd {0};
   };
 
-  // IMU 相关遥测：加速度/角速度/姿态角（均为 STM32 上行整型原始值）。
+  // IMU 相关遥测：加速度/角速度（均为 STM32 上行整型原始值）。
   struct ImuTelemetry
   {
     int32_t ax {0};
@@ -48,9 +48,6 @@ private:
     int32_t gx {0};
     int32_t gy {0};
     int32_t gz {0};
-    int32_t pit {0};
-    int32_t rol {0};
-    int32_t yaw {0};
   };
 
   // $TEL 一帧上行遥测聚合结构。
@@ -78,7 +75,7 @@ private:
   void processRxBuffer();
   void processReceivedFrame(const std::string & frame);
   bool parseTelTelemetryFrame(const std::string & frame, TelTelemetryFrame & out) const;
-  bool parseTelIntegerFields(const std::string & payload, std::array<int32_t, 16> & values) const;
+  bool parseTelIntegerFields(const std::string & payload, std::array<int32_t, 13> & values) const;
   void publishImuRaw(const ImuTelemetry & imu, const rclcpp::Time & stamp);
   void publishWheelTicks(const EncoderTelemetry & enc);
   void updateOdomPlaceholder(

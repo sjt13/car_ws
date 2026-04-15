@@ -615,13 +615,13 @@ bool BaseDriverNode::parseTelTelemetryFrame(const std::string & frame, TelTeleme
 
   // 去掉 "$TEL:" 前缀和末尾 "!"，得到纯字段负载区。
   const std::string payload = frame.substr(5, frame.size() - 6);
-  std::array<int32_t, 16> values {};
+  std::array<int32_t, 13> values {};
   if (!parseTelIntegerFields(payload, values)) {
     return false;
   }
 
   // 按协议固定顺序映射字段：
-  // ix,iy,iw,wa,wb,wc,wd,ax,ay,az,gx,gy,gz,pit,rol,yaw
+  // ix,iy,iw,wa,wb,wc,wd,ax,ay,az,gx,gy,gz
   out.enc.ix = values[0];
   out.enc.iy = values[1];
   out.enc.iw = values[2];
@@ -636,15 +636,12 @@ bool BaseDriverNode::parseTelTelemetryFrame(const std::string & frame, TelTeleme
   out.imu.gx = values[10];
   out.imu.gy = values[11];
   out.imu.gz = values[12];
-  out.imu.pit = values[13];
-  out.imu.rol = values[14];
-  out.imu.yaw = values[15];
   return true;
 }
 
-// 解析 $TEL 负载中的 16 个有符号整数字段，失败即返回 false。
+// 解析 $TEL 负载中的 13 个有符号整数字段，失败即返回 false。
 bool BaseDriverNode::parseTelIntegerFields(
-  const std::string & payload, std::array<int32_t, 16> & values) const
+  const std::string & payload, std::array<int32_t, 13> & values) const
 {
   std::size_t start = 0;
   std::size_t index = 0;
