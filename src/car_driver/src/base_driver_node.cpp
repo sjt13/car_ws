@@ -169,6 +169,10 @@ void BaseDriverNode::declareAndLoadParameters()
   declare_parameter<double>("publish_rate", 30.0);
   // TF 广播频率（Hz）：独立于上行遥测/odom 发布，保证 RViz 和导航栈观感更稳。
   declare_parameter<double>("tf_publish_rate", 20.0);
+  // Odom 线速度死区（m/s）：过滤静止时小幅漂移，避免 RViz 里程计自己乱跑。
+  declare_parameter<double>("odom_linear_deadband", 0.05);
+  // Odom 角速度死区（rad/s）：过滤静止时角速度噪声导致的朝向/轨迹漂移。
+  declare_parameter<double>("odom_angular_deadband", 0.10);
   // x 方向最大线速度限幅（m/s）。
   declare_parameter<double>("max_vx", 1.5);
   // y 方向最大线速度限幅（m/s）。
@@ -190,6 +194,8 @@ void BaseDriverNode::declareAndLoadParameters()
   cmd_timeout_sec_ = get_parameter("cmd_timeout").as_double();        // 超时阈值
   publish_rate_hz_ = get_parameter("publish_rate").as_double();       // 发送频率
   tf_publish_rate_hz_ = get_parameter("tf_publish_rate").as_double(); // TF 广播频率
+  odom_linear_deadband_mps_ = get_parameter("odom_linear_deadband").as_double();
+  odom_angular_deadband_radps_ = get_parameter("odom_angular_deadband").as_double();
   max_vx_mps_ = get_parameter("max_vx").as_double();                  // vx 限幅
   max_vy_mps_ = get_parameter("max_vy").as_double();                  // vy 限幅
   max_wz_radps_ = get_parameter("max_wz").as_double();                // wz 限幅
@@ -207,6 +213,15 @@ void BaseDriverNode::declareAndLoadParameters()
   if (tf_publish_rate_hz_ <= 0.0) {
     RCLCPP_WARN(get_logger(), "tf_publish_rate <= 0 不合法，已回退到 20.0Hz");
     tf_publish_rate_hz_ = 20.0;
+  }
+  // 防御性校验：odom 死区不能为负，否则语义混乱。
+  if (odom_linear_deadband_mps_ < 0.0) {
+    RCLCPP_WARN(get_logger(), "odom_linear_deadband < 0 不合法，已回退到 0.05m/s");
+    odom_linear_deadband_mps_ = 0.05;
+  }
+  if (odom_angular_deadband_radps_ < 0.0) {
+    RCLCPP_WARN(get_logger(), "odom_angular_deadband < 0 不合法，已回退到 0.10rad/s");
+    odom_angular_deadband_radps_ = 0.10;
   }
   // 防御性校验：超时不能 <= 0，否则会一直判定超时。
   if (cmd_timeout_sec_ <= 0.0) {
@@ -323,6 +338,12 @@ BaseDriverNode::VelocityCommand BaseDriverNode::clampTwist(
   cmd.wz_radps = clampSymmetric(msg.angular.z, max_wz_radps_);
   // 返回裁剪后的安全速度。
   return cmd;
+}
+
+// odom 死区：把绝对值落在 deadband 内的小速度直接压成 0，避免静止漂移。
+double BaseDriverNode::applyOdomDeadband(double value, double deadband) const
+{
+  return std::abs(value) < deadband ? 0.0 : value;
 }
 
 // 编码函数：把速度命令转成 STM32 现有协议帧 "$CAR:x,y,z!"。
@@ -806,9 +827,12 @@ void BaseDriverNode::updateOdom(
     return;
   }
 
-  const double vx = static_cast<double>(enc.ix) / 1000.0;
-  const double vy = static_cast<double>(enc.iy) / 1000.0;
-  const double wz = static_cast<double>(enc.iw) / 1000.0;
+  const double vx = applyOdomDeadband(
+    static_cast<double>(enc.ix) / 1000.0, odom_linear_deadband_mps_);
+  const double vy = applyOdomDeadband(
+    static_cast<double>(enc.iy) / 1000.0, odom_linear_deadband_mps_);
+  const double wz = applyOdomDeadband(
+    static_cast<double>(enc.iw) / 1000.0, odom_angular_deadband_radps_);
 
   if (!odom_initialized_) {
     odom_initialized_ = true;

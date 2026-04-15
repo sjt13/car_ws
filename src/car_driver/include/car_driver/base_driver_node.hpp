@@ -66,6 +66,7 @@ private:
   void tfTimerCallback();
 
   VelocityCommand clampTwist(const geometry_msgs::msg::Twist & msg) const;
+  double applyOdomDeadband(double value, double deadband) const;
   std::string encodeVelocityFrame(const VelocityCommand & cmd) const;
 
   bool ensureSerialConnected();
@@ -103,6 +104,8 @@ private:
   double cmd_timeout_sec_ {0.5};
   double publish_rate_hz_ {30.0};
   double tf_publish_rate_hz_ {20.0};
+  double odom_linear_deadband_mps_ {0.05};
+  double odom_angular_deadband_radps_ {0.10};
   double max_vx_mps_ {1.5};
   double max_vy_mps_ {1.2};
   double max_wz_radps_ {6.28};
