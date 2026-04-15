@@ -564,30 +564,44 @@ void BaseDriverNode::pollSerialReceive()
   processRxBuffer();
 }
 
-// 分帧：按结束符从 rx_buffer_ 提取完整报文。
+// 分帧：优先围绕 "$TEL:" 做对齐，再按 ! 提取完整遥测帧。
 void BaseDriverNode::processRxBuffer()
 {
-  // 只要缓存不为空，就持续尝试提取一帧。
   while (!rx_buffer_.empty()) {
-    // 查找第一个“结束符”位置：
-    // 兼容 ! / \n / \r / > / } 这些在现有固件中常见的包尾字符。
-    const std::size_t pos = rx_buffer_.find_first_of("!\n\r>}");
-    // 没找到结束符说明是半包，等待下轮读到更多字节。
-    if (pos == std::string::npos) {
+    const std::size_t tel_start = rx_buffer_.find("$TEL:");
+
+    // 缓冲里连帧头都没有，说明当前都是噪声，最多保留尾巴等下一轮补全。
+    if (tel_start == std::string::npos) {
+      if (rx_buffer_.size() > 16) {
+        rx_buffer_.erase(0, rx_buffer_.size() - 16);
+      }
       break;
     }
 
-    // 截取完整帧（包含结束符本身）。
-    const std::string frame = rx_buffer_.substr(0, pos + 1);
-    // 从缓存中删除已处理帧。
-    rx_buffer_.erase(0, pos + 1);
-    // 交给上层处理函数（当前仅 debug，后续可扩展业务解析）。
+    // 丢掉帧头之前的脏数据，避免半截垃圾一直污染分帧。
+    if (tel_start > 0) {
+      rx_buffer_.erase(0, tel_start);
+    }
+
+    // 此时缓存一定以 $TEL: 开头，再找对应的包尾 !。
+    const std::size_t end_pos = rx_buffer_.find('!');
+    if (end_pos == std::string::npos) {
+      break;
+    }
+
+    std::string frame = rx_buffer_.substr(0, end_pos + 1);
+    rx_buffer_.erase(0, end_pos + 1);
+
+    // 如果一个“帧”里又混进了新的 $TEL:，说明前半截已经脏了，直接从最后一个帧头重新对齐。
+    const std::size_t duplicated_tel = frame.rfind("$TEL:");
+    if (duplicated_tel != std::string::npos && duplicated_tel > 0) {
+      frame.erase(0, duplicated_tel);
+    }
+
     processReceivedFrame(frame);
   }
 
-  // 防御性保护：若持续收不到结束符，限制缓存长度避免无限增长。
   if (rx_buffer_.size() > 1024) {
-    // 仅保留最后 1024 字节，丢弃更早数据。
     rx_buffer_.erase(0, rx_buffer_.size() - 1024);
   }
 }
