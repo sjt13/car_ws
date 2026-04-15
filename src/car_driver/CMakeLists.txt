@@ -13,6 +13,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 add_executable(base_driver_node
   src/base_driver_node.cpp
@@ -31,6 +32,7 @@ ament_target_dependencies(base_driver_node
   std_msgs
   nav_msgs
   tf2
+  tf2_ros
 )
 
 install(

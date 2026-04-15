@@ -6,10 +6,12 @@
 #include <string>
 
 #include "geometry_msgs/msg/twist.hpp"
+#include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/int32_multi_array.hpp"
+#include "tf2_ros/transform_broadcaster.h"
 
 namespace car_driver
 {
@@ -82,11 +84,13 @@ private:
   void updateOdom(
     const EncoderTelemetry & enc, const ImuTelemetry & imu, const rclcpp::Time & stamp);
   geometry_msgs::msg::Quaternion yawToQuaternion(double yaw) const;
+  void publishOdomTf(const rclcpp::Time & stamp) const;
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_raw_pub_;
   rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr wheel_ticks_pub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   std::string port_;

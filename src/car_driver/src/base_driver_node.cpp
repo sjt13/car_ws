@@ -33,6 +33,9 @@
 // POSIX 读写与关闭接口（read/write/close）。
 #include <unistd.h>
 
+#include "geometry_msgs/msg/transform_stamped.hpp"
+#include "tf2_ros/transform_broadcaster.h"
+
 namespace car_driver
 {
 
@@ -123,6 +126,8 @@ BaseDriverNode::BaseDriverNode()
   odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(
     "/odom",
     rclcpp::QoS(10));
+  // 同步发布 odom -> base_link 动态 TF，给 RViz / 导航栈直接喂坐标变换。
+  tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
   // 把发布频率（Hz）转换为 wall timer 的时间周期。
   const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -754,6 +759,23 @@ geometry_msgs::msg::Quaternion BaseDriverNode::yawToQuaternion(double yaw) const
   return q;
 }
 
+void BaseDriverNode::publishOdomTf(const rclcpp::Time & stamp) const
+{
+  if (!tf_broadcaster_) {
+    return;
+  }
+
+  geometry_msgs::msg::TransformStamped tf_msg;
+  tf_msg.header.stamp = stamp;
+  tf_msg.header.frame_id = odom_frame_id_;
+  tf_msg.child_frame_id = base_frame_id_;
+  tf_msg.transform.translation.x = odom_x_m_;
+  tf_msg.transform.translation.y = odom_y_m_;
+  tf_msg.transform.translation.z = 0.0;
+  tf_msg.transform.rotation = yawToQuaternion(odom_yaw_rad_);
+  tf_broadcaster_->sendTransform(tf_msg);
+}
+
 void BaseDriverNode::updateOdom(
   const EncoderTelemetry & enc, const ImuTelemetry & imu, const rclcpp::Time & stamp)
 {
@@ -801,6 +823,7 @@ void BaseDriverNode::updateOdom(
   msg.twist.covariance[7] = 0.05;
   msg.twist.covariance[35] = 0.1;
   odom_pub_->publish(msg);
+  publishOdomTf(stamp);
 }
 
 }  // namespace car_driver
