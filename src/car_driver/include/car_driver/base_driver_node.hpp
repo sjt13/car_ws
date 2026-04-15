@@ -6,6 +6,7 @@
 #include <string>
 
 #include "geometry_msgs/msg/twist.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/int32_multi_array.hpp"
@@ -78,16 +79,20 @@ private:
   bool parseTelIntegerFields(const std::string & payload, std::array<int32_t, 13> & values) const;
   void publishImuRaw(const ImuTelemetry & imu, const rclcpp::Time & stamp);
   void publishWheelTicks(const EncoderTelemetry & enc);
-  void updateOdomPlaceholder(
+  void updateOdom(
     const EncoderTelemetry & enc, const ImuTelemetry & imu, const rclcpp::Time & stamp);
+  geometry_msgs::msg::Quaternion yawToQuaternion(double yaw) const;
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_raw_pub_;
   rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr wheel_ticks_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 
   std::string port_;
   std::string imu_frame_id_ {"imu_link"};
+  std::string odom_frame_id_ {"odom"};
+  std::string base_frame_id_ {"base_link"};
   int baudrate_ {115200};
   double cmd_timeout_sec_ {0.5};
   double publish_rate_hz_ {30.0};
@@ -104,6 +109,11 @@ private:
   rclcpp::Time last_reconnect_try_time_;
 
   std::string rx_buffer_;
+  bool odom_initialized_ {false};
+  rclcpp::Time last_odom_stamp_;
+  double odom_x_m_ {0.0};
+  double odom_y_m_ {0.0};
+  double odom_yaw_rad_ {0.0};
 };
 
 }  // namespace car_driver

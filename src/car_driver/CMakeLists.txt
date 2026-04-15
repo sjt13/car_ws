@@ -11,6 +11,8 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(tf2 REQUIRED)
 
 add_executable(base_driver_node
   src/base_driver_node.cpp
@@ -27,6 +29,8 @@ ament_target_dependencies(base_driver_node
   geometry_msgs
   sensor_msgs
   std_msgs
+  nav_msgs
+  tf2
 )
 
 install(

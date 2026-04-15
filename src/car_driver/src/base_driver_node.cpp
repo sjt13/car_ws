@@ -14,6 +14,7 @@
 #include <cmath>
 // 固定宽度整数：用于 int16_t 等类型。
 #include <cstdint>
+#include <utility>
 // C 数值转换：用于 std::strtol 解析整数字段。
 #include <cstdlib>
 // C 字符串工具：用于 strerror 将 errno 转可读文本。
@@ -118,6 +119,10 @@ BaseDriverNode::BaseDriverNode()
   wheel_ticks_pub_ = create_publisher<std_msgs::msg::Int32MultiArray>(
     "/wheel_ticks",
     rclcpp::QoS(10));
+  // 第一版里程计：仅基于底盘速度 ix/iy/iw 做 2D 积分发布 /odom。
+  odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(
+    "/odom",
+    rclcpp::QoS(10));
 
   // 把发布频率（Hz）转换为 wall timer 的时间周期。
   const auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -162,6 +167,10 @@ void BaseDriverNode::declareAndLoadParameters()
   declare_parameter<double>("reconnect_interval", 1.0);
   // IMU 消息 frame_id（用于 /imu/data_raw）。
   declare_parameter<std::string>("imu_frame_id", "imu_link");
+  // Odom 消息 frame_id。
+  declare_parameter<std::string>("odom_frame_id", "odom");
+  // Odom 子坐标系 frame_id。
+  declare_parameter<std::string>("base_frame_id", "base_link");
 
   // 从参数服务器读取值到成员变量，后续逻辑统一使用成员变量。
   port_ = get_parameter("port").as_string();                          // 设备节点
@@ -173,6 +182,8 @@ void BaseDriverNode::declareAndLoadParameters()
   max_wz_radps_ = get_parameter("max_wz").as_double();                // wz 限幅
   reconnect_interval_sec_ = get_parameter("reconnect_interval").as_double();  // 重连间隔
   imu_frame_id_ = get_parameter("imu_frame_id").as_string();          // IMU 坐标系
+  odom_frame_id_ = get_parameter("odom_frame_id").as_string();        // odom 坐标系
+  base_frame_id_ = get_parameter("base_frame_id").as_string();        // 车体坐标系
 
   // 防御性校验：频率不能 <= 0，否则会导致 timer 周期非法。
   if (publish_rate_hz_ <= 0.0) {
@@ -192,6 +203,14 @@ void BaseDriverNode::declareAndLoadParameters()
   if (imu_frame_id_.empty()) {
     RCLCPP_WARN(get_logger(), "imu_frame_id 为空，已回退到 imu_link");
     imu_frame_id_ = "imu_link";
+  }
+  if (odom_frame_id_.empty()) {
+    RCLCPP_WARN(get_logger(), "odom_frame_id 为空，已回退到 odom");
+    odom_frame_id_ = "odom";
+  }
+  if (base_frame_id_.empty()) {
+    RCLCPP_WARN(get_logger(), "base_frame_id 为空，已回退到 base_link");
+    base_frame_id_ = "base_link";
   }
 }
 
@@ -598,12 +617,11 @@ void BaseDriverNode::processReceivedFrame(const std::string & frame)
     return;
   }
 
-  // 成功解析后，统一使用当前 ROS 时间戳发布两个上行话题。
+  // 成功解析后，统一使用当前 ROS 时间戳发布上行话题。
   const auto stamp = now();
   publishImuRaw(telemetry.imu, stamp);
   publishWheelTicks(telemetry.enc);
-  // odom 接口预留：本版本不做 odom 计算与发布。
-  updateOdomPlaceholder(telemetry.enc, telemetry.imu, stamp);
+  updateOdom(telemetry.enc, telemetry.imu, stamp);
 }
 
 // 解析完整 $TEL 帧，输出结构化的遥测数据。
@@ -714,14 +732,61 @@ void BaseDriverNode::publishWheelTicks(const EncoderTelemetry & enc)
   wheel_ticks_pub_->publish(msg);
 }
 
-// odom 预留接口：本版本只保留入口，不实现 odom 计算/发布。
-void BaseDriverNode::updateOdomPlaceholder(
+geometry_msgs::msg::Quaternion BaseDriverNode::yawToQuaternion(double yaw) const
+{
+  geometry_msgs::msg::Quaternion q;
+  q.z = std::sin(yaw * 0.5);
+  q.w = std::cos(yaw * 0.5);
+  return q;
+}
+
+void BaseDriverNode::updateOdom(
   const EncoderTelemetry & enc, const ImuTelemetry & imu, const rclcpp::Time & stamp)
 {
-  (void)enc;
   (void)imu;
-  (void)stamp;
-  // TODO(odom): 后续在此接入里程计融合与 /odom 发布逻辑。
+  if (!odom_pub_) {
+    return;
+  }
+
+  const double vx = static_cast<double>(enc.ix) / 1000.0;
+  const double vy = static_cast<double>(enc.iy) / 1000.0;
+  const double wz = static_cast<double>(enc.iw) / 1000.0;
+
+  if (!odom_initialized_) {
+    odom_initialized_ = true;
+    last_odom_stamp_ = stamp;
+  } else {
+    const double dt = (stamp - last_odom_stamp_).seconds();
+    last_odom_stamp_ = stamp;
+    if (dt > 0.0 && dt < 1.0) {
+      const double cos_yaw = std::cos(odom_yaw_rad_);
+      const double sin_yaw = std::sin(odom_yaw_rad_);
+      const double vx_world = vx * cos_yaw - vy * sin_yaw;
+      const double vy_world = vx * sin_yaw + vy * cos_yaw;
+      odom_x_m_ += vx_world * dt;
+      odom_y_m_ += vy_world * dt;
+      odom_yaw_rad_ += wz * dt;
+    }
+  }
+
+  nav_msgs::msg::Odometry msg;
+  msg.header.stamp = stamp;
+  msg.header.frame_id = odom_frame_id_;
+  msg.child_frame_id = base_frame_id_;
+  msg.pose.pose.position.x = odom_x_m_;
+  msg.pose.pose.position.y = odom_y_m_;
+  msg.pose.pose.position.z = 0.0;
+  msg.pose.pose.orientation = yawToQuaternion(odom_yaw_rad_);
+  msg.twist.twist.linear.x = vx;
+  msg.twist.twist.linear.y = vy;
+  msg.twist.twist.angular.z = wz;
+  msg.pose.covariance[0] = 0.05;
+  msg.pose.covariance[7] = 0.05;
+  msg.pose.covariance[35] = 0.1;
+  msg.twist.covariance[0] = 0.05;
+  msg.twist.covariance[7] = 0.05;
+  msg.twist.covariance[35] = 0.1;
+  odom_pub_->publish(msg);
 }
 
 }  // namespace car_driver
