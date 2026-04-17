@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 import sys
 import time
@@ -11,7 +10,8 @@ import rclpy
 from cv_bridge import CvBridge
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from std_msgs.msg import String
+from std_msgs.msg import Float32
+from vision_msgs.msg import Detection2D, Detection2DArray, ObjectHypothesisWithPose
 
 # 兼容当前从 rknn_model_zoo-self 搬出来的目录结构。
 RKNN_ZOO_ROOT = '/home/elf/rknn/rknn_model_zoo-self'
@@ -188,13 +188,13 @@ class YoloDetectorNode(Node):
         self.model = RKNN_model_container(self.model_path, self.target, self.device_id)
 
         self.detections_pub = self.create_publisher(
-            String, self.get_parameter('detections_topic').value, 10
+            Detection2DArray, self.get_parameter('detections_topic').value, 10
         )
         self.annotated_pub = self.create_publisher(
             Image, self.get_parameter('annotated_image_topic').value, 10
         )
         self.fps_pub = self.create_publisher(
-            String, self.get_parameter('publish_fps_topic').value, 10
+            Float32, self.get_parameter('publish_fps_topic').value, 10
         )
 
         self.cap = self._open_capture(self.camera_device)
@@ -215,31 +215,33 @@ class YoloDetectorNode(Node):
             raise RuntimeError(f'无法打开摄像头: {camera_device}')
         return cap
 
-    def _build_detection_payload(self, stamp, boxes, classes, scores, image_width, image_height):
-        detections = []
-        if boxes is not None:
-            for box, score, cl in zip(boxes, scores, classes):
-                x1, y1, x2, y2 = [float(v) for v in box]
-                detections.append({
-                    'class_id': int(cl),
-                    'class_name': CLASSES[int(cl)],
-                    'score': float(score),
-                    'bbox_xyxy': [x1, y1, x2, y2],
-                    'center_xy': [(x1 + x2) / 2.0, (y1 + y2) / 2.0],
-                    'size_wh': [x2 - x1, y2 - y1],
-                })
-        payload = {
-            'header': {
-                'stamp_sec': int(stamp.sec),
-                'stamp_nanosec': int(stamp.nanosec),
-                'frame_id': self.camera_frame_id,
-            },
-            'image_width': int(image_width),
-            'image_height': int(image_height),
-            'model_path': self.model_path,
-            'detections': detections,
-        }
-        return payload
+    def _build_detection_array(self, stamp, boxes, classes, scores):
+        msg = Detection2DArray()
+        msg.header.stamp = stamp
+        msg.header.frame_id = self.camera_frame_id
+
+        if boxes is None:
+            return msg
+
+        for index, (box, score, cl) in enumerate(zip(boxes, scores, classes)):
+            x1, y1, x2, y2 = [float(v) for v in box]
+            detection = Detection2D()
+            detection.header.stamp = stamp
+            detection.header.frame_id = self.camera_frame_id
+            detection.id = str(index)
+            detection.bbox.center.position.x = (x1 + x2) / 2.0
+            detection.bbox.center.position.y = (y1 + y2) / 2.0
+            detection.bbox.center.theta = 0.0
+            detection.bbox.size_x = x2 - x1
+            detection.bbox.size_y = y2 - y1
+
+            hypothesis = ObjectHypothesisWithPose()
+            hypothesis.hypothesis.class_id = CLASSES[int(cl)]
+            hypothesis.hypothesis.score = float(score)
+            detection.results.append(hypothesis)
+            msg.detections.append(detection)
+
+        return msg
 
     def timer_callback(self):
         begin = time.time()
@@ -263,16 +265,12 @@ class YoloDetectorNode(Node):
         fps = 1.0 / max(time.time() - begin, 1e-6)
         cv2.putText(annotated, f'{fps:.2f} fps', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
 
-        payload = self._build_detection_payload(
+        det_msg = self._build_detection_array(
             stamp=stamp,
             boxes=real_boxes,
             classes=classes,
             scores=scores,
-            image_width=frame.shape[1],
-            image_height=frame.shape[0],
         )
-        det_msg = String()
-        det_msg.data = json.dumps(payload, ensure_ascii=False)
         self.detections_pub.publish(det_msg)
 
         img_msg = self.bridge.cv2_to_imgmsg(annotated, encoding='bgr8')
@@ -280,8 +278,8 @@ class YoloDetectorNode(Node):
         img_msg.header.frame_id = self.camera_frame_id
         self.annotated_pub.publish(img_msg)
 
-        fps_msg = String()
-        fps_msg.data = json.dumps({'fps': fps}, ensure_ascii=False)
+        fps_msg = Float32()
+        fps_msg.data = float(fps)
         self.fps_pub.publish(fps_msg)
 
     def destroy_node(self):
