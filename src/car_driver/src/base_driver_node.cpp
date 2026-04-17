@@ -185,8 +185,8 @@ void BaseDriverNode::declareAndLoadParameters()
   declare_parameter<std::string>("imu_frame_id", "imu_link");
   // Odom 消息 frame_id。
   declare_parameter<std::string>("odom_frame_id", "odom");
-  // Odom 子坐标系 frame_id。
-  declare_parameter<std::string>("base_frame_id", "base_link");
+  // Odom 子坐标系 frame_id。默认用 base_footprint，保持 odom -> base_footprint -> base_link 结构更规范。
+  declare_parameter<std::string>("base_frame_id", "base_footprint");
 
   // 从参数服务器读取值到成员变量，后续逻辑统一使用成员变量。
   port_ = get_parameter("port").as_string();                          // 设备节点
@@ -242,8 +242,8 @@ void BaseDriverNode::declareAndLoadParameters()
     odom_frame_id_ = "odom";
   }
   if (base_frame_id_.empty()) {
-    RCLCPP_WARN(get_logger(), "base_frame_id 为空，已回退到 base_link");
-    base_frame_id_ = "base_link";
+    RCLCPP_WARN(get_logger(), "base_frame_id 为空，已回退到 base_footprint");
+    base_frame_id_ = "base_footprint";
   }
 }
 

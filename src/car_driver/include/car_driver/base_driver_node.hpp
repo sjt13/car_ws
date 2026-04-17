@@ -99,7 +99,7 @@ private:
   std::string port_;
   std::string imu_frame_id_ {"imu_link"};
   std::string odom_frame_id_ {"odom"};
-  std::string base_frame_id_ {"base_link"};
+  std::string base_frame_id_ {"base_footprint"};
   int baudrate_ {115200};
   double cmd_timeout_sec_ {0.5};
   double publish_rate_hz_ {30.0};

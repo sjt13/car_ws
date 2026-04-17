@@ -42,7 +42,7 @@ def generate_launch_description():
         DeclareLaunchArgument('tf_publish_rate', default_value='20.0'),
         DeclareLaunchArgument('imu_frame_id', default_value='imu_link'),
         DeclareLaunchArgument('odom_frame_id', default_value='odom'),
-        DeclareLaunchArgument('base_frame_id', default_value='base_link'),
+        DeclareLaunchArgument('base_frame_id', default_value='base_footprint'),
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
