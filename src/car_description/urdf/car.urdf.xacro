@@ -1,0 +1,165 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="mecanum_car">
+  <!--
+    第一版最小可用 URDF：
+    - 重点先把底盘、轮子、IMU、预留雷达坐标系挂起来
+    - 麦轮滚子细节、真实惯量、复杂碰撞先不卷
+  -->
+
+  <!-- 车体主体尺寸 -->
+  <xacro:property name="body_length" value="0.280"/>
+  <xacro:property name="body_width" value="0.150"/>
+  <xacro:property name="body_height" value="0.049"/>
+
+  <!-- 车体安装高度：base_link 放在车体几何中心 -->
+  <xacro:property name="ground_to_body_bottom" value="0.060"/>
+  <xacro:property name="base_link_z" value="${ground_to_body_bottom + body_height / 2.0}"/>
+
+  <!-- 轮子参数 -->
+  <xacro:property name="wheel_radius" value="0.040"/>
+  <xacro:property name="wheel_width" value="0.035"/>
+  <xacro:property name="wheel_track" value="0.212"/>
+  <xacro:property name="wheel_base" value="0.200"/>
+  <xacro:property name="wheel_x" value="${wheel_base / 2.0}"/>
+  <xacro:property name="wheel_y" value="${wheel_track / 2.0}"/>
+
+  <!-- 传感器参数 -->
+  <!-- IMU 的 z 按用户给的数据先相对 base_link 保留；这会略高于顶板，后面可再修 -->
+  <xacro:property name="imu_x" value="-0.090"/>
+  <xacro:property name="imu_y" value="0.0"/>
+  <xacro:property name="imu_z" value="0.025"/>
+
+  <!-- 雷达还没装，这里先放一个不太坑的预留挂点 -->
+  <xacro:property name="laser_x" value="0.090"/>
+  <xacro:property name="laser_y" value="0.0"/>
+  <xacro:property name="laser_z" value="0.090"/>
+
+  <material name="mat_body">
+    <color rgba="0.20 0.20 0.24 1.0"/>
+  </material>
+  <material name="mat_wheel">
+    <color rgba="0.08 0.08 0.08 1.0"/>
+  </material>
+  <material name="mat_sensor">
+    <color rgba="0.15 0.55 0.85 1.0"/>
+  </material>
+  <material name="mat_laser">
+    <color rgba="0.85 0.25 0.15 1.0"/>
+  </material>
+
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_to_base_link" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 ${base_link_z}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${body_length} ${body_width} ${body_height}"/>
+      </geometry>
+      <material name="mat_body"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${body_length} ${body_width} ${body_height}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="2.0"/>
+      <inertia ixx="0.02" ixy="0.0" ixz="0.0" iyy="0.03" iyz="0.0" izz="0.04"/>
+    </inertial>
+  </link>
+
+  <xacro:macro name="wheel_link" params="name">
+    <link name="${name}">
+      <visual>
+        <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+        <material name="mat_wheel"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="1.57079632679 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="0.25"/>
+        <inertia ixx="0.0005" ixy="0.0" ixz="0.0" iyy="0.0005" iyz="0.0" izz="0.0003"/>
+      </inertial>
+    </link>
+  </xacro:macro>
+
+  <xacro:wheel_link name="front_left_wheel_link"/>
+  <xacro:wheel_link name="front_right_wheel_link"/>
+  <xacro:wheel_link name="rear_left_wheel_link"/>
+  <xacro:wheel_link name="rear_right_wheel_link"/>
+
+  <!--
+    轮子通过支架下吊，所以 wheel center 会低于车体底板。
+    这里先按给定轴距/轮距挂结构坐标；滚动驱动和真实转向细节后续再接控制层。
+  -->
+  <joint name="front_left_wheel_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="front_left_wheel_link"/>
+    <origin xyz="${wheel_x} ${wheel_y} ${wheel_radius - base_link_z}" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="front_right_wheel_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="front_right_wheel_link"/>
+    <origin xyz="${wheel_x} ${-wheel_y} ${wheel_radius - base_link_z}" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="rear_left_wheel_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rear_left_wheel_link"/>
+    <origin xyz="${-wheel_x} ${wheel_y} ${wheel_radius - base_link_z}" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="rear_right_wheel_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rear_right_wheel_link"/>
+    <origin xyz="${-wheel_x} ${-wheel_y} ${wheel_radius - base_link_z}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="imu_link">
+    <visual>
+      <geometry>
+        <box size="0.040 0.030 0.010"/>
+      </geometry>
+      <material name="mat_sensor"/>
+    </visual>
+  </link>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="${imu_x} ${imu_y} ${imu_z}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="laser_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.040"/>
+      </geometry>
+      <material name="mat_laser"/>
+    </visual>
+  </link>
+
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="laser_link"/>
+    <origin xyz="${laser_x} ${laser_y} ${laser_z}" rpy="0 0 0"/>
+  </joint>
+</robot>
