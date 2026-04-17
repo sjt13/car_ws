@@ -107,8 +107,8 @@ def post_process(input_data):
     pair_per_branch = len(input_data) // default_branch
     for i in range(default_branch):
         boxes.append(box_process(input_data[pair_per_branch * i]))
-        scores.append(input_data[pair_per_branch * i + 1])
-        classes_conf.append(input_data[pair_per_branch * i + 2])
+        classes_conf.append(input_data[pair_per_branch * i + 1])
+        scores.append(input_data[pair_per_branch * i + 2])
 
     def sp_flatten(_in):
         ch = _in.shape[1]
