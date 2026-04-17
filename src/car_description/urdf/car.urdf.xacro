@@ -43,7 +43,7 @@
   <xacro:property name="outrigger_y_size" value="${wheel_y - body_width / 2.0}"/>
   <xacro:property name="outrigger_x_size" value="0.030"/>
   <xacro:property name="outrigger_z_size" value="0.010"/>
-  <xacro:property name="outrigger_center_y" value="${body_width / 2.0 + outrigger_y_size / 2.0}"/>
+  <xacro:property name="outrigger_center_y" value="${outrigger_y_size / 2.0}"/>
 
   <!-- 传感器参数 -->
   <xacro:property name="imu_x" value="-0.090"/>
@@ -182,9 +182,9 @@
         </geometry>
         <material name="mat_support"/>
       </visual>
-      <!-- 竖向下吊支架 -->
+      <!-- 竖向下吊支架，贴在横向连接块外侧末端 -->
       <visual>
-        <origin xyz="0 ${side_sign * outrigger_y_size / 2.0} ${hanger_center_z}" rpy="0 0 0"/>
+        <origin xyz="0 ${side_sign * (outrigger_y_size + hanger_y_size) / 2.0} ${hanger_center_z}" rpy="0 0 0"/>
         <geometry>
           <box size="${hanger_x_size} ${hanger_y_size} ${hanger_drop}"/>
         </geometry>
