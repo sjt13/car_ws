@@ -40,6 +40,10 @@
   <xacro:property name="hanger_y_size" value="0.014"/>
   <xacro:property name="hanger_drop" value="${bottom_plate_z - wheel_center_z}"/>
   <xacro:property name="hanger_center_z" value="${(bottom_plate_z + wheel_center_z) / 2.0}"/>
+  <xacro:property name="outrigger_y_size" value="${wheel_y - body_width / 2.0}"/>
+  <xacro:property name="outrigger_x_size" value="0.030"/>
+  <xacro:property name="outrigger_z_size" value="0.010"/>
+  <xacro:property name="outrigger_center_y" value="${body_width / 2.0 + outrigger_y_size / 2.0}"/>
 
   <!-- 传感器参数 -->
   <xacro:property name="imu_x" value="-0.090"/>
@@ -168,10 +172,19 @@
     </link>
   </xacro:macro>
 
-  <xacro:macro name="wheel_hanger" params="name x y">
+  <xacro:macro name="wheel_hanger" params="name x y side_sign">
     <link name="${name}">
+      <!-- 横向外伸连接块：把车体边缘和下吊支架真正接起来 -->
       <visual>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <origin xyz="0 ${side_sign * outrigger_center_y} ${bottom_plate_z}" rpy="0 0 0"/>
+        <geometry>
+          <box size="${outrigger_x_size} ${outrigger_y_size} ${outrigger_z_size}"/>
+        </geometry>
+        <material name="mat_support"/>
+      </visual>
+      <!-- 竖向下吊支架 -->
+      <visual>
+        <origin xyz="0 ${side_sign * outrigger_y_size / 2.0} ${hanger_center_z}" rpy="0 0 0"/>
         <geometry>
           <box size="${hanger_x_size} ${hanger_y_size} ${hanger_drop}"/>
         </geometry>
@@ -181,7 +194,7 @@
     <joint name="${name}_joint" type="fixed">
       <parent link="base_link"/>
       <child link="${name}"/>
-      <origin xyz="${x} ${y} ${hanger_center_z}" rpy="0 0 0"/>
+      <origin xyz="${x} ${side_sign * body_width / 2.0} 0" rpy="0 0 0"/>
     </joint>
   </xacro:macro>
 
@@ -190,10 +203,10 @@
   <xacro:wheel_link name="rear_left_wheel_link"/>
   <xacro:wheel_link name="rear_right_wheel_link"/>
 
-  <xacro:wheel_hanger name="front_left_hanger_link" x="${wheel_x}" y="${wheel_y}"/>
-  <xacro:wheel_hanger name="front_right_hanger_link" x="${wheel_x}" y="${-wheel_y}"/>
-  <xacro:wheel_hanger name="rear_left_hanger_link" x="${-wheel_x}" y="${wheel_y}"/>
-  <xacro:wheel_hanger name="rear_right_hanger_link" x="${-wheel_x}" y="${-wheel_y}"/>
+  <xacro:wheel_hanger name="front_left_hanger_link" x="${wheel_x}" y="${wheel_y}" side_sign="1"/>
+  <xacro:wheel_hanger name="front_right_hanger_link" x="${wheel_x}" y="${-wheel_y}" side_sign="-1"/>
+  <xacro:wheel_hanger name="rear_left_hanger_link" x="${-wheel_x}" y="${wheel_y}" side_sign="1"/>
+  <xacro:wheel_hanger name="rear_right_hanger_link" x="${-wheel_x}" y="${-wheel_y}" side_sign="-1"/>
 
   <joint name="front_left_wheel_joint" type="fixed">
     <parent link="base_link"/>
