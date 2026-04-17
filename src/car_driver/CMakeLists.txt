@@ -41,6 +41,11 @@ install(
 )
 
 install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(
   TARGETS base_driver_node
   DESTINATION lib/${PROJECT_NAME}
 )
