@@ -115,6 +115,66 @@ ros2 launch car_description display.launch.py
 - `/yolo/image_annotated` → `sensor_msgs/msg/Image`
 - `/yolo/debug_fps` → `std_msgs/msg/Float32`
 
+### 5.0 yolo_detector_node 输入/输出说明
+
+#### 输入
+
+当前节点不是订阅 ROS 图像话题，而是**直接打开本机摄像头设备**。
+
+主要输入参数：
+
+- `model_path`：RKNN 模型文件路径
+- `camera_device`：摄像头设备节点，例如 `/dev/video21`
+- `target`：RKNN 目标平台，例如 `rk3588`
+- `camera_frame_id`：检测结果和图像消息使用的 frame id
+
+当前默认输入来源是：
+
+- 本机 V4L2 摄像头设备
+- RKNN 模型文件
+
+#### 输出
+
+节点当前会输出 3 个话题：
+
+1. `/yolo/detections`  
+   类型：`vision_msgs/msg/Detection2DArray`
+
+   每帧输出检测结果，包含：
+   - `header.stamp`
+   - `header.frame_id`
+   - `detections[].bbox.center.position.x/y`
+   - `detections[].bbox.size_x/size_y`
+   - `detections[].results[].hypothesis.class_id`
+   - `detections[].results[].hypothesis.score`
+   - `detections[].id`
+
+   说明：
+   - `class_id` 当前填的是类别名字符串，例如 `person`、`car`
+   - `id` 当前只是该帧中的检测序号，不是跨帧跟踪 ID
+
+2. `/yolo/image_annotated`  
+   类型：`sensor_msgs/msg/Image`
+
+   输出带检测框的图像，用于调试和肉眼确认检测结果。
+
+3. `/yolo/debug_fps`  
+   类型：`std_msgs/msg/Float32`
+
+   输出当前节点的粗略处理帧率，用于快速判断性能。
+
+#### 当前不输出的内容
+
+这个节点目前只是 **2D 检测节点**，不会直接输出：
+
+- 目标在 `map` 坐标系中的位置
+- 目标在 `base_link` 坐标系中的位置
+- 目标距离
+- 稳定跟踪 ID
+- 跨帧目标关联结果
+
+这些需要后续单独的定位 / 融合 / 跟踪节点处理。
+
 ### 5.1 启动节点
 
 ```bash
