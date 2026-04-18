@@ -6,7 +6,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('model_path', default_value='/home/elf/rknn/yolo11/model/yolo11s.rknn'),
+        DeclareLaunchArgument('model_path', default_value='/home/elf/rknn/yolo11/model/yolo11n.rknn'),
         DeclareLaunchArgument('target', default_value='rk3588'),
         DeclareLaunchArgument('device_id', default_value=''),
         DeclareLaunchArgument('camera_device', default_value='/dev/video21'),

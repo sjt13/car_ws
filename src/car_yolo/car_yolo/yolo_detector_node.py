@@ -166,7 +166,7 @@ def draw(image, boxes, scores, classes):
 class YoloDetectorNode(Node):
     def __init__(self):
         super().__init__('yolo_detector_node')
-        self.declare_parameter('model_path', '/home/elf/rknn/yolo11/model/yolo11s.rknn')
+        self.declare_parameter('model_path', '/home/elf/rknn/yolo11/model/yolo11n.rknn')
         self.declare_parameter('target', 'rk3588')
         self.declare_parameter('device_id', '')
         self.declare_parameter('camera_device', '/dev/video21')
