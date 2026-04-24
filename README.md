@@ -77,6 +77,7 @@ odom -> base_footprint -> base_link
 
 - `car_driver` 负责发布：`odom -> base_footprint`
 - `robot_state_publisher` + URDF 负责发布：`base_footprint -> base_link` 以及其他传感器/结构挂点
+- 若现场发现“实际转 90°，RViz 转得更大”，现在可直接通过 `odom_yaw_scale` 做 yaw 比例标定，先从 `0.53` 附近试。
 
 启动整车底盘（不含雷达、不含手柄）：
 
@@ -92,6 +93,22 @@ ros2 launch car_driver bringup.launch.py
 ```bash
 ros2 launch car_driver bringup.launch.py port:=/dev/ttyS9
 ```
+
+---
+
+ros2 launch car_driver full_bringup.launch.py \
+  base_port:=/dev/ttyS9 \
+  lidar_port:=/dev/ttyUSB0 \
+  use_joy:=true \
+  odom_yaw_scale:=0.53
+```
+
+如果现场观察仍偏大/偏小，直接按比例微调：
+
+- RViz 转得偏大 → 继续把 `odom_yaw_scale` 往下压，比如 `0.50`
+- RViz 转得偏小 → 把 `odom_yaw_scale` 往上加，比如 `0.56`
+
+别一上来又去乱改 teleop，那是在给自己找事。
 
 ---
 

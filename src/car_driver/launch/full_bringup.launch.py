@@ -15,6 +15,7 @@ def generate_launch_description():
     imu_frame_id = LaunchConfiguration('imu_frame_id')
     odom_frame_id = LaunchConfiguration('odom_frame_id')
     base_frame_id = LaunchConfiguration('base_frame_id')
+    odom_yaw_scale = LaunchConfiguration('odom_yaw_scale')
 
     lidar_port = LaunchConfiguration('lidar_port')
     lidar_baudrate = LaunchConfiguration('lidar_baudrate')
@@ -61,6 +62,7 @@ def generate_launch_description():
         DeclareLaunchArgument('imu_frame_id', default_value='imu_link'),
         DeclareLaunchArgument('odom_frame_id', default_value='odom'),
         DeclareLaunchArgument('base_frame_id', default_value='base_footprint'),
+        DeclareLaunchArgument('odom_yaw_scale', default_value='0.53'),
         DeclareLaunchArgument('lidar_port', default_value='/dev/ttyUSB0'),
         DeclareLaunchArgument('lidar_baudrate', default_value='460800'),
         DeclareLaunchArgument('lidar_frame_id', default_value='laser_link'),
@@ -105,6 +107,7 @@ def generate_launch_description():
                 'imu_frame_id': imu_frame_id,
                 'odom_frame_id': odom_frame_id,
                 'base_frame_id': base_frame_id,
+                'odom_yaw_scale': odom_yaw_scale,
             }],
         ),
         Node(
