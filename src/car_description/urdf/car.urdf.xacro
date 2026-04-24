@@ -50,10 +50,13 @@
   <xacro:property name="imu_y" value="0.0"/>
   <xacro:property name="imu_z" value="0.025"/>
 
-  <!-- 雷达还没装，先放一个合理预留位 -->
-  <xacro:property name="laser_x" value="0.090"/>
-  <xacro:property name="laser_y" value="0.0"/>
-  <xacro:property name="laser_z" value="0.090"/>
+  <!-- 当前实装：C1 安装在 base_link 正上方，底部离地约 0.18m；
+       按总高 41.3mm 和扫描窗近中上部估算，扫描平面离地约 0.204m。
+       base_link 几何中心离地约 0.0845m，因此这里先把 laser_link 挂到 z≈0.120m。
+       目前实物前后反装，先用 yaw=pi 修正朝向。 -->
+  <xacro:property name="laser_x" value="0.000"/>
+  <xacro:property name="laser_y" value="0.000"/>
+  <xacro:property name="laser_z" value="0.120"/>
   <xacro:property name="laser_radius" value="0.035"/>
   <xacro:property name="laser_height" value="0.040"/>
   <xacro:property name="laser_pole_radius" value="0.008"/>
@@ -276,6 +279,6 @@
   <joint name="laser_joint" type="fixed">
     <parent link="base_link"/>
     <child link="laser_link"/>
-    <origin xyz="${laser_x} ${laser_y} ${laser_z}" rpy="0 0 0"/>
+    <origin xyz="${laser_x} ${laser_y} ${laser_z}" rpy="0 0 3.14159265359"/>
   </joint>
 </robot>
