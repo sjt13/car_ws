@@ -78,7 +78,7 @@ odom -> base_footprint -> base_link
 - `car_driver` 负责发布：`odom -> base_footprint`
 - `robot_state_publisher` + URDF 负责发布：`base_footprint -> base_link` 以及其他传感器/结构挂点
 
-启动整车 bringup：
+启动整车底盘（不含雷达、不含手柄）：
 
 ```bash
 cd /home/elf/car/car_ws
@@ -95,7 +95,53 @@ ros2 launch car_driver bringup.launch.py port:=/dev/ttyS9
 
 ---
 
-## 4. 车模单独显示
+## 4. 手柄控制启动
+
+当前手柄控制由两个节点组成：
+
+- `joy` 包的 `joy_node`：读取手柄输入，发布 `/joy`
+- `car_teleop` 的 `joy_to_cmdvel_node`：把 `/joy` 转成 `/cmd_vel`
+
+### 4.1 分开启动
+
+先启动手柄驱动：
+
+```bash
+cd /home/elf/car/car_ws
+source /opt/ros/humble/setup.bash
+source /home/elf/car/car_ws/install/setup.bash
+ros2 run joy joy_node
+```
+
+再启动手柄转速度节点：
+
+```bash
+cd /home/elf/car/car_ws
+source /opt/ros/humble/setup.bash
+source /home/elf/car/car_ws/install/setup.bash
+ros2 run car_teleop joy_to_cmdvel_node
+```
+
+### 4.2 常见联调用法
+
+如果底盘驱动已经在跑，可以额外开一个终端启动上面两个节点，然后检查：
+
+```bash
+ros2 topic echo /joy
+ros2 topic echo /cmd_vel
+```
+
+### 4.3 手柄设备不在默认节点时
+
+如果不是默认设备，可手动指定：
+
+```bash
+ros2 run joy joy_node --ros-args -p dev:=/dev/input/js0
+```
+
+---
+
+## 5. 车模单独显示
 
 用于只检查 URDF / TF / RViz 展示：
 
@@ -108,7 +154,8 @@ ros2 launch car_description display.launch.py
 
 ---
 
-## 5. YOLO 检测节点使用
+## 6. YOLO 检测节点使用
+
 
 `car_yolo` 当前是第一版车端检测节点，直接读取本机摄像头，调用 RKNN YOLO11 推理，并发布：
 
@@ -116,7 +163,8 @@ ros2 launch car_description display.launch.py
 - `/yolo/image_annotated` → `sensor_msgs/msg/Image`
 - `/yolo/debug_fps` → `std_msgs/msg/Float32`
 
-### 5.0 yolo_detector_node 输入/输出说明
+### 6.0 yolo_detector_node 输入/输出说明
+
 
 #### 输入
 
@@ -176,7 +224,8 @@ ros2 launch car_description display.launch.py
 
 这些需要后续单独的定位 / 融合 / 跟踪节点处理。
 
-### 5.1 启动节点
+### 6.1 启动节点
+
 
 ```bash
 cd /home/elf/car/car_ws
@@ -185,7 +234,8 @@ source /home/elf/car/car_ws/install/setup.bash
 ros2 launch car_yolo yolo_detector.launch.py
 ```
 
-### 5.2 常用参数
+### 6.2 常用参数
+
 
 默认参数位于：
 
@@ -202,7 +252,8 @@ ros2 launch car_yolo yolo_detector.launch.py \
   target:=rk3588
 ```
 
-### 5.3 查看检测结果
+### 6.3 查看检测结果
+
 
 看检测消息：
 
@@ -226,7 +277,8 @@ rqt_image_view
 sudo apt install ros-humble-rqt-image-view
 ```
 
-### 5.4 模型文件放哪里
+### 6.4 模型文件放哪里
+
 
 当前建议模型统一放外部目录，不要塞进 `car_yolo` 包里复制多份。
 
@@ -245,13 +297,15 @@ ros2 launch car_yolo yolo_detector.launch.py \
 
 ---
 
-## 6. 激光雷达（思岚 C1）接入
+## 7. 激光雷达（思岚 C1）接入
+
 
 当前工作区已接入：
 
 - `src/rplidar_ros/` → Slamtec 官方 ROS2 驱动
 
-### 6.1 关于 SDK 和 ROS2 包的关系
+### 7.1 关于 SDK 和 ROS2 包的关系
+
 
 别被官网那句提示绕进去。
 
@@ -269,7 +323,8 @@ ros2 launch car_yolo yolo_detector.launch.py \
 - 你想写**不依赖 ROS** 的底层测试程序
 - 你想单独研究 SDK API / demo
 
-### 6.2 编译雷达驱动
+### 7.2 编译雷达驱动
+
 
 ```bash
 cd /home/elf/car/car_ws
@@ -278,7 +333,8 @@ colcon build --packages-select rplidar_ros
 source /home/elf/car/car_ws/install/setup.bash
 ```
 
-### 6.3 单独启动 C1 雷达
+### 7.3 单独启动 C1 雷达
+
 
 官方自带 launch：
 
@@ -292,9 +348,10 @@ ros2 launch rplidar_ros rplidar_c1_launch.py serial_port:=/dev/ttyUSB0
 ros2 launch rplidar_ros view_rplidar_c1_launch.py serial_port:=/dev/ttyUSB0
 ```
 
-### 6.4 结合当前车体模型启动
+### 7.4 结合当前车体模型启动
 
-工作区里额外补了一个统一入口：
+
+工作区里额外补了一个**雷达联调入口**：
 
 ```bash
 ros2 launch car_driver lidar_bringup.launch.py serial_port:=/dev/ttyUSB0
@@ -311,7 +368,43 @@ ros2 launch car_driver lidar_bringup.launch.py serial_port:=/dev/ttyUSB0
 - `frame_id:=laser_link`
 - `serial_baudrate:=460800`
 
-### 6.5 上车前先确认设备节点
+### 7.5 整车总启动（底盘 + 雷达 + 可选手柄）
+
+现在工作区还补了一个**总 bringup**：
+
+```bash
+ros2 launch car_driver full_bringup.launch.py \
+  base_port:=/dev/ttyS9 \
+  lidar_port:=/dev/ttyUSB0
+```
+
+如果还要顺手把手柄也一起起：
+
+```bash
+ros2 launch car_driver full_bringup.launch.py \
+  base_port:=/dev/ttyS9 \
+  lidar_port:=/dev/ttyUSB0 \
+  use_joy:=true
+```
+
+这个 launch 会按需启动：
+
+- `robot_state_publisher`
+- `base_driver_node`
+- `rplidar_node`
+- `rviz2`
+- `joy_node`（当 `use_joy:=true`）
+- `joy_to_cmdvel_node`（当 `use_joy:=true`）
+
+常用参数：
+
+- `base_port`：底盘串口，默认 `/dev/ttyS9`
+- `lidar_port`：雷达串口，默认 `/dev/ttyUSB0`
+- `use_rviz`：是否启动 RViz，默认 `true`
+- `use_joy`：是否启动手柄链路，默认 `false`
+- `joy_dev`：手柄设备，默认 `/dev/input/js0`
+
+### 7.6 上车前先确认设备节点
 
 雷达插上后先查：
 
@@ -327,7 +420,7 @@ dmesg | tail -n 50
 
 如果不是 `/dev/ttyUSB0`，启动参数记得改，别拿默认值硬怼。
 
-### 6.6 权限问题
+### 7.7 权限问题
 
 如果节点起不来，先怀疑串口权限，不要先怀疑玄学。
 
@@ -346,9 +439,10 @@ source scripts/create_udev_rules.sh
 
 ---
 
-## 7. 已知说明
+## 8. 已知说明
 
-### 6.1 `car_yolo` 依赖外部 `py_utils`
+### 8.1 `car_yolo` 依赖外部 `py_utils`
+
 
 当前节点为了兼容现有 RKNN 工程，代码里仍依赖：
 
@@ -365,7 +459,8 @@ source scripts/create_udev_rules.sh
 - `rknn_model_zoo-self` 中实际需要的 `py_utils`
 - 目标机上的 ROS2 humble + RKNN 运行环境
 
-### 6.2 当前检测节点输入方式
+### 8.2 当前检测节点输入方式
+
 
 当前 `car_yolo` 是**直接开摄像头设备节点**，还不是订阅 ROS 图像话题。
 
@@ -376,7 +471,8 @@ source scripts/create_udev_rules.sh
 
 ---
 
-## 7. 更新维护约定
+## 9. 更新维护约定
+
 
 后续每次对 `car_ws` 做出有意义更新时，应该同步更新本 README，至少补充：
 
