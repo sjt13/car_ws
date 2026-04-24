@@ -30,6 +30,10 @@ def generate_launch_description():
     linear_scale = LaunchConfiguration('linear_scale')
     lateral_scale = LaunchConfiguration('lateral_scale')
     angular_scale = LaunchConfiguration('angular_scale')
+    smoothing_alpha = LaunchConfiguration('smoothing_alpha')
+    max_linear_accel = LaunchConfiguration('max_linear_accel')
+    max_lateral_accel = LaunchConfiguration('max_lateral_accel')
+    max_angular_accel = LaunchConfiguration('max_angular_accel')
 
     xacro_file = PathJoinSubstitution(
         [FindPackageShare('car_description'), 'urdf', 'car.urdf.xacro']
@@ -64,6 +68,10 @@ def generate_launch_description():
         DeclareLaunchArgument('linear_scale', default_value='0.4'),
         DeclareLaunchArgument('lateral_scale', default_value='0.4'),
         DeclareLaunchArgument('angular_scale', default_value='1.0'),
+        DeclareLaunchArgument('smoothing_alpha', default_value='0.25'),
+        DeclareLaunchArgument('max_linear_accel', default_value='0.6'),
+        DeclareLaunchArgument('max_lateral_accel', default_value='0.6'),
+        DeclareLaunchArgument('max_angular_accel', default_value='1.5'),
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
@@ -124,6 +132,10 @@ def generate_launch_description():
                 'linear_scale': linear_scale,
                 'lateral_scale': lateral_scale,
                 'angular_scale': angular_scale,
+                'smoothing_alpha': smoothing_alpha,
+                'max_linear_accel': max_linear_accel,
+                'max_lateral_accel': max_lateral_accel,
+                'max_angular_accel': max_angular_accel,
             }],
             condition=IfCondition(use_joy),
         ),

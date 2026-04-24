@@ -21,6 +21,11 @@ class JoyToCmdVelNode(Node):
         self.declare_parameter('linear_scale', 0.4)
         self.declare_parameter('lateral_scale', 0.4)
         self.declare_parameter('angular_scale', 1.0)
+        self.declare_parameter('smoothing_alpha', 0.25)
+        self.declare_parameter('max_linear_accel', 0.6)
+        self.declare_parameter('max_lateral_accel', 0.6)
+        self.declare_parameter('max_angular_accel', 1.5)
+        self.declare_parameter('publish_rate', 30.0)
 
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.joy_sub = self.create_subscription(
@@ -30,7 +35,18 @@ class JoyToCmdVelNode(Node):
             10,
         )
 
-        self.get_logger().info('joy_to_cmdvel_node 已启动，订阅 /joy，发布 /cmd_vel。')
+        self.target_cmd = Twist()
+        self.current_cmd = Twist()
+        self.last_tick_time = self.get_clock().now()
+
+        publish_rate = float(self.get_parameter('publish_rate').value)
+        if publish_rate <= 0.0:
+            publish_rate = 30.0
+        self.timer = self.create_timer(1.0 / publish_rate, self.publish_smoothed_cmd)
+
+        self.get_logger().info(
+            'joy_to_cmdvel_node 已启动，订阅 /joy，发布 /cmd_vel，已启用输出平滑和加速度限幅。'
+        )
 
     @staticmethod
     def apply_deadzone(value: float, deadzone: float) -> float:
@@ -45,6 +61,25 @@ class JoyToCmdVelNode(Node):
         if index >= len(axes):
             return 0.0
         return float(axes[index])
+
+    @staticmethod
+    def first_order_filter(current: float, target: float, alpha: float) -> float:
+        """一阶低通：用 alpha 控制当前值向目标值靠近的速度。"""
+        alpha = max(0.0, min(1.0, alpha))
+        return current + alpha * (target - current)
+
+    @staticmethod
+    def apply_rate_limit(current: float, target: float, max_accel: float, dt: float) -> float:
+        """斜坡限幅：限制单周期速度变化量，避免手柄一抖就窜。"""
+        if dt <= 0.0 or max_accel <= 0.0:
+            return target
+        max_delta = max_accel * dt
+        delta = target - current
+        if delta > max_delta:
+            return current + max_delta
+        if delta < -max_delta:
+            return current - max_delta
+        return target
 
     def joy_callback(self, msg: Joy) -> None:
         # 每次回调都读取参数，便于运行时动态调参。
@@ -86,13 +121,63 @@ class JoyToCmdVelNode(Node):
         # - 若右推为正值：右推 -> angular.z > 0（左转）
         yaw_direction_fixed = yaw_after_deadzone * yaw_sign
 
-        # 4) 缩放：把处理后的归一化轴值转换为最终速度值。
-        cmd = Twist()
-        cmd.linear.x = forward_direction_fixed * linear_scale
-        cmd.linear.y = lateral_direction_fixed * lateral_scale
-        cmd.angular.z = yaw_direction_fixed * angular_scale
+        # 4) 先算目标速度，不在回调里立刻发布；交给定时器做平滑和限幅。
+        self.target_cmd.linear.x = forward_direction_fixed * linear_scale
+        self.target_cmd.linear.y = lateral_direction_fixed * lateral_scale
+        self.target_cmd.angular.z = yaw_direction_fixed * angular_scale
 
-        # 5) 发布 /cmd_vel。
+    def publish_smoothed_cmd(self) -> None:
+        """按固定频率输出平滑后的 /cmd_vel，避免输入抖动直接打到底盘。"""
+        now = self.get_clock().now()
+        dt = (now - self.last_tick_time).nanoseconds / 1e9
+        self.last_tick_time = now
+        if dt <= 0.0:
+            dt = 1.0 / 30.0
+
+        smoothing_alpha = float(self.get_parameter('smoothing_alpha').value)
+        max_linear_accel = float(self.get_parameter('max_linear_accel').value)
+        max_lateral_accel = float(self.get_parameter('max_lateral_accel').value)
+        max_angular_accel = float(self.get_parameter('max_angular_accel').value)
+
+        filtered_linear_x = self.first_order_filter(
+            self.current_cmd.linear.x,
+            self.target_cmd.linear.x,
+            smoothing_alpha,
+        )
+        filtered_linear_y = self.first_order_filter(
+            self.current_cmd.linear.y,
+            self.target_cmd.linear.y,
+            smoothing_alpha,
+        )
+        filtered_angular_z = self.first_order_filter(
+            self.current_cmd.angular.z,
+            self.target_cmd.angular.z,
+            smoothing_alpha,
+        )
+
+        self.current_cmd.linear.x = self.apply_rate_limit(
+            self.current_cmd.linear.x,
+            filtered_linear_x,
+            max_linear_accel,
+            dt,
+        )
+        self.current_cmd.linear.y = self.apply_rate_limit(
+            self.current_cmd.linear.y,
+            filtered_linear_y,
+            max_lateral_accel,
+            dt,
+        )
+        self.current_cmd.angular.z = self.apply_rate_limit(
+            self.current_cmd.angular.z,
+            filtered_angular_z,
+            max_angular_accel,
+            dt,
+        )
+
+        cmd = Twist()
+        cmd.linear.x = self.current_cmd.linear.x
+        cmd.linear.y = self.current_cmd.linear.y
+        cmd.angular.z = self.current_cmd.angular.z
         self.cmd_vel_pub.publish(cmd)
 
 
