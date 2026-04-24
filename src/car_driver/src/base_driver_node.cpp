@@ -171,6 +171,8 @@ void BaseDriverNode::declareAndLoadParameters()
   declare_parameter<double>("tf_publish_rate", 20.0);
   // Odom 线速度死区（m/s）：过滤静止时小幅漂移，避免 RViz 里程计自己乱跑。
   declare_parameter<double>("odom_linear_deadband", 0.05);
+  // Odom 角速度死区（rad/s）：过滤静止时角速度噪声导致的朝向/轨迹漂移。
+  declare_parameter<double>("odom_angular_deadband", 0.10);
   // Odom 角速度比例修正：用于把 STM32 上行 iw 的角速度按实测比例缩放。
   declare_parameter<double>("odom_yaw_scale", 0.53);
   // x 方向最大线速度限幅（m/s）。
