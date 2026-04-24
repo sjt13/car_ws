@@ -28,9 +28,6 @@ class JoyToCmdVelNode(Node):
         self.declare_parameter('max_linear_decel', 1.2)
         self.declare_parameter('max_lateral_decel', 1.2)
         self.declare_parameter('max_angular_decel', 3.0)
-        self.declare_parameter('output_linear_epsilon', 0.015)
-        self.declare_parameter('output_lateral_epsilon', 0.015)
-        self.declare_parameter('output_angular_epsilon', 0.03)
         self.declare_parameter('publish_rate', 30.0)
 
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -102,13 +99,7 @@ class JoyToCmdVelNode(Node):
             return current - max_delta
         return target
 
-    @staticmethod
-    def suppress_small_output(value: float, epsilon: float) -> float:
-        """把很小的残余输出压成 0，减少底盘被细碎速度反复拨动。"""
-        if abs(value) < max(0.0, epsilon):
-            return 0.0
-        return value
-
+    def joy_callback(self, msg: Joy) -> None:
         # 每次回调都读取参数，便于运行时动态调参。
         deadzone = float(self.get_parameter('deadzone').value)
         linear_scale = float(self.get_parameter('linear_scale').value)
@@ -168,9 +159,6 @@ class JoyToCmdVelNode(Node):
         max_linear_decel = float(self.get_parameter('max_linear_decel').value)
         max_lateral_decel = float(self.get_parameter('max_lateral_decel').value)
         max_angular_decel = float(self.get_parameter('max_angular_decel').value)
-        output_linear_epsilon = float(self.get_parameter('output_linear_epsilon').value)
-        output_lateral_epsilon = float(self.get_parameter('output_lateral_epsilon').value)
-        output_angular_epsilon = float(self.get_parameter('output_angular_epsilon').value)
 
         filtered_linear_x = self.first_order_filter(
             self.current_cmd.linear.x,
@@ -211,9 +199,9 @@ class JoyToCmdVelNode(Node):
         )
 
         cmd = Twist()
-        cmd.linear.x = self.suppress_small_output(self.current_cmd.linear.x, output_linear_epsilon)
-        cmd.linear.y = self.suppress_small_output(self.current_cmd.linear.y, output_lateral_epsilon)
-        cmd.angular.z = self.suppress_small_output(self.current_cmd.angular.z, output_angular_epsilon)
+        cmd.linear.x = self.current_cmd.linear.x
+        cmd.linear.y = self.current_cmd.linear.y
+        cmd.angular.z = self.current_cmd.angular.z
         self.cmd_vel_pub.publish(cmd)
 
 
