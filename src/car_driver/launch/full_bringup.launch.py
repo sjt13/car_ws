@@ -34,6 +34,9 @@ def generate_launch_description():
     max_linear_accel = LaunchConfiguration('max_linear_accel')
     max_lateral_accel = LaunchConfiguration('max_lateral_accel')
     max_angular_accel = LaunchConfiguration('max_angular_accel')
+    max_linear_decel = LaunchConfiguration('max_linear_decel')
+    max_lateral_decel = LaunchConfiguration('max_lateral_decel')
+    max_angular_decel = LaunchConfiguration('max_angular_decel')
 
     xacro_file = PathJoinSubstitution(
         [FindPackageShare('car_description'), 'urdf', 'car.urdf.xacro']
@@ -72,6 +75,9 @@ def generate_launch_description():
         DeclareLaunchArgument('max_linear_accel', default_value='0.6'),
         DeclareLaunchArgument('max_lateral_accel', default_value='0.6'),
         DeclareLaunchArgument('max_angular_accel', default_value='1.5'),
+        DeclareLaunchArgument('max_linear_decel', default_value='1.2'),
+        DeclareLaunchArgument('max_lateral_decel', default_value='1.2'),
+        DeclareLaunchArgument('max_angular_decel', default_value='3.0'),
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
@@ -136,6 +142,9 @@ def generate_launch_description():
                 'max_linear_accel': max_linear_accel,
                 'max_lateral_accel': max_lateral_accel,
                 'max_angular_accel': max_angular_accel,
+                'max_linear_decel': max_linear_decel,
+                'max_lateral_decel': max_lateral_decel,
+                'max_angular_decel': max_angular_decel,
             }],
             condition=IfCondition(use_joy),
         ),

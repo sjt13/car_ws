@@ -171,8 +171,8 @@ void BaseDriverNode::declareAndLoadParameters()
   declare_parameter<double>("tf_publish_rate", 20.0);
   // Odom 线速度死区（m/s）：过滤静止时小幅漂移，避免 RViz 里程计自己乱跑。
   declare_parameter<double>("odom_linear_deadband", 0.05);
-  // Odom 角速度死区（rad/s）：过滤静止时角速度噪声导致的朝向/轨迹漂移。
-  declare_parameter<double>("odom_angular_deadband", 0.10);
+  // Odom z 轴角速度缩放：用于修正底盘上报 iw 与真实 yaw 变化不一致的问题。
+  declare_parameter<double>("odom_yaw_scale", 0.5);
   // x 方向最大线速度限幅（m/s）。
   declare_parameter<double>("max_vx", 1.5);
   // y 方向最大线速度限幅（m/s）。
@@ -196,6 +196,7 @@ void BaseDriverNode::declareAndLoadParameters()
   tf_publish_rate_hz_ = get_parameter("tf_publish_rate").as_double(); // TF 广播频率
   odom_linear_deadband_mps_ = get_parameter("odom_linear_deadband").as_double();
   odom_angular_deadband_radps_ = get_parameter("odom_angular_deadband").as_double();
+  odom_yaw_scale_ = get_parameter("odom_yaw_scale").as_double();
   max_vx_mps_ = get_parameter("max_vx").as_double();                  // vx 限幅
   max_vy_mps_ = get_parameter("max_vy").as_double();                  // vy 限幅
   max_wz_radps_ = get_parameter("max_wz").as_double();                // wz 限幅
@@ -222,6 +223,10 @@ void BaseDriverNode::declareAndLoadParameters()
   if (odom_angular_deadband_radps_ < 0.0) {
     RCLCPP_WARN(get_logger(), "odom_angular_deadband < 0 不合法，已回退到 0.10rad/s");
     odom_angular_deadband_radps_ = 0.10;
+  }
+  if (odom_yaw_scale_ <= 0.0) {
+    RCLCPP_WARN(get_logger(), "odom_yaw_scale <= 0 不合法，已回退到 0.5");
+    odom_yaw_scale_ = 0.5;
   }
   // 防御性校验：超时不能 <= 0，否则会一直判定超时。
   if (cmd_timeout_sec_ <= 0.0) {
@@ -832,7 +837,7 @@ void BaseDriverNode::updateOdom(
   const double vy = applyOdomDeadband(
     static_cast<double>(enc.iy) / 1000.0, odom_linear_deadband_mps_);
   const double wz = applyOdomDeadband(
-    static_cast<double>(enc.iw) / 1000.0, odom_angular_deadband_radps_);
+    (static_cast<double>(enc.iw) / 1000.0) * odom_yaw_scale_, odom_angular_deadband_radps_);
 
   if (!odom_initialized_) {
     odom_initialized_ = true;
