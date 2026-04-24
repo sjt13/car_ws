@@ -19,7 +19,8 @@ car_ws/
 ├── src/
 │   ├── car_description/   # URDF/xacro、RViz 配置、模型显示 launch
 │   ├── car_driver/        # 底盘驱动、串口通信、odom/TF 发布
-│   └── car_yolo/          # RKNN YOLO11 检测节点
+│   ├── car_yolo/          # RKNN YOLO11 检测节点
+│   └── rplidar_ros/       # 思岚 RPLIDAR ROS2 驱动（已包含 sdk 源码）
 ├── build/
 ├── install/
 └── log/
@@ -244,7 +245,108 @@ ros2 launch car_yolo yolo_detector.launch.py \
 
 ---
 
-## 6. 已知说明
+## 6. 激光雷达（思岚 C1）接入
+
+当前工作区已接入：
+
+- `src/rplidar_ros/` → Slamtec 官方 ROS2 驱动
+
+### 6.1 关于 SDK 和 ROS2 包的关系
+
+别被官网那句提示绕进去。
+
+当前 `ros2` 分支的 `rplidar_ros` 仓库**已经自带 `sdk/` 目录和对应源码**，`CMakeLists.txt` 也是直接从包内的 `sdk/src` 编译进节点，不要求你先单独安装一份外部 SDK。
+
+也就是说，当前这套接法是：
+
+- 克隆 `rplidar_ros`
+- 直接在 `car_ws` 里 `colcon build`
+
+不是“先装 SDK 再编 ROS 包”这套。
+
+只有在下面两种情况，你才需要单独碰 `rplidar_sdk`：
+
+- 你想写**不依赖 ROS** 的底层测试程序
+- 你想单独研究 SDK API / demo
+
+### 6.2 编译雷达驱动
+
+```bash
+cd /home/elf/car/car_ws
+source /opt/ros/humble/setup.bash
+colcon build --packages-select rplidar_ros
+source /home/elf/car/car_ws/install/setup.bash
+```
+
+### 6.3 单独启动 C1 雷达
+
+官方自带 launch：
+
+```bash
+ros2 launch rplidar_ros rplidar_c1_launch.py serial_port:=/dev/ttyUSB0
+```
+
+如果想连 RViz 一起开：
+
+```bash
+ros2 launch rplidar_ros view_rplidar_c1_launch.py serial_port:=/dev/ttyUSB0
+```
+
+### 6.4 结合当前车体模型启动
+
+工作区里额外补了一个统一入口：
+
+```bash
+ros2 launch car_driver lidar_bringup.launch.py serial_port:=/dev/ttyUSB0
+```
+
+这个 launch 会同时启动：
+
+- `robot_state_publisher`
+- `rplidar_node`
+- RViz
+
+默认参数：
+
+- `frame_id:=laser_link`
+- `serial_baudrate:=460800`
+
+### 6.5 上车前先确认设备节点
+
+雷达插上后先查：
+
+```bash
+ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
+```
+
+再看内核日志：
+
+```bash
+dmesg | tail -n 50
+```
+
+如果不是 `/dev/ttyUSB0`，启动参数记得改，别拿默认值硬怼。
+
+### 6.6 权限问题
+
+如果节点起不来，先怀疑串口权限，不要先怀疑玄学。
+
+临时放权：
+
+```bash
+sudo chmod 666 /dev/ttyUSB0
+```
+
+官方仓库里也带了 udev 规则脚本：
+
+```bash
+cd /home/elf/car/car_ws/src/rplidar_ros
+source scripts/create_udev_rules.sh
+```
+
+---
+
+## 7. 已知说明
 
 ### 6.1 `car_yolo` 依赖外部 `py_utils`
 
