@@ -106,7 +106,6 @@ private:
   double tf_publish_rate_hz_ {20.0};
   double odom_linear_deadband_mps_ {0.05};
   double odom_angular_deadband_radps_ {0.10};
-  double odom_yaw_scale_ {0.5};
   double max_vx_mps_ {1.5};
   double max_vy_mps_ {1.2};
   double max_wz_radps_ {6.28};

@@ -25,9 +25,6 @@ class JoyToCmdVelNode(Node):
         self.declare_parameter('max_linear_accel', 0.6)
         self.declare_parameter('max_lateral_accel', 0.6)
         self.declare_parameter('max_angular_accel', 1.5)
-        self.declare_parameter('max_linear_decel', 1.2)
-        self.declare_parameter('max_lateral_decel', 1.2)
-        self.declare_parameter('max_angular_decel', 3.0)
         self.declare_parameter('publish_rate', 30.0)
 
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -72,27 +69,12 @@ class JoyToCmdVelNode(Node):
         return current + alpha * (target - current)
 
     @staticmethod
-    def apply_rate_limit(
-        current: float,
-        target: float,
-        max_accel: float,
-        max_decel: float,
-        dt: float,
-    ) -> float:
-        """非对称斜坡限幅：加速慢一点，收杆减速快一点。"""
-        if dt <= 0.0:
+    def apply_rate_limit(current: float, target: float, max_accel: float, dt: float) -> float:
+        """斜坡限幅：限制单周期速度变化量，避免手柄一抖就窜。"""
+        if dt <= 0.0 or max_accel <= 0.0:
             return target
-
+        max_delta = max_accel * dt
         delta = target - current
-        if delta == 0.0:
-            return target
-
-        accelerating_same_direction = current == 0.0 or (current * target > 0.0 and abs(target) > abs(current))
-        limit = max_accel if accelerating_same_direction else max_decel
-        if limit <= 0.0:
-            return target
-
-        max_delta = limit * dt
         if delta > max_delta:
             return current + max_delta
         if delta < -max_delta:
@@ -156,9 +138,6 @@ class JoyToCmdVelNode(Node):
         max_linear_accel = float(self.get_parameter('max_linear_accel').value)
         max_lateral_accel = float(self.get_parameter('max_lateral_accel').value)
         max_angular_accel = float(self.get_parameter('max_angular_accel').value)
-        max_linear_decel = float(self.get_parameter('max_linear_decel').value)
-        max_lateral_decel = float(self.get_parameter('max_lateral_decel').value)
-        max_angular_decel = float(self.get_parameter('max_angular_decel').value)
 
         filtered_linear_x = self.first_order_filter(
             self.current_cmd.linear.x,
@@ -180,21 +159,18 @@ class JoyToCmdVelNode(Node):
             self.current_cmd.linear.x,
             filtered_linear_x,
             max_linear_accel,
-            max_linear_decel,
             dt,
         )
         self.current_cmd.linear.y = self.apply_rate_limit(
             self.current_cmd.linear.y,
             filtered_linear_y,
             max_lateral_accel,
-            max_lateral_decel,
             dt,
         )
         self.current_cmd.angular.z = self.apply_rate_limit(
             self.current_cmd.angular.z,
             filtered_angular_z,
             max_angular_accel,
-            max_angular_decel,
             dt,
         )
 
