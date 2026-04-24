@@ -28,6 +28,9 @@ class JoyToCmdVelNode(Node):
         self.declare_parameter('max_linear_decel', 1.2)
         self.declare_parameter('max_lateral_decel', 1.2)
         self.declare_parameter('max_angular_decel', 3.0)
+        self.declare_parameter('target_linear_epsilon', 0.015)
+        self.declare_parameter('target_lateral_epsilon', 0.015)
+        self.declare_parameter('target_angular_epsilon', 0.03)
         self.declare_parameter('publish_rate', 30.0)
 
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -99,12 +102,25 @@ class JoyToCmdVelNode(Node):
             return current - max_delta
         return target
 
+    @staticmethod
+    def should_update_target(current: float, new_value: float, epsilon: float) -> bool:
+        """目标变化太小时不更新，减少手柄细碎抖动传到底盘。"""
+        epsilon = max(0.0, epsilon)
+        if epsilon == 0.0:
+            return True
+        if abs(new_value) < epsilon and abs(current) < epsilon:
+            return False
+        return abs(new_value - current) >= epsilon
+
     def joy_callback(self, msg: Joy) -> None:
         # 每次回调都读取参数，便于运行时动态调参。
         deadzone = float(self.get_parameter('deadzone').value)
         linear_scale = float(self.get_parameter('linear_scale').value)
         lateral_scale = float(self.get_parameter('lateral_scale').value)
         angular_scale = float(self.get_parameter('angular_scale').value)
+        target_linear_epsilon = float(self.get_parameter('target_linear_epsilon').value)
+        target_lateral_epsilon = float(self.get_parameter('target_lateral_epsilon').value)
+        target_angular_epsilon = float(self.get_parameter('target_angular_epsilon').value)
 
         # 1) 读取原始轴值。
         raw_forward = self.read_axis(msg.axes, 1)  # axes[1]：左摇杆上下
@@ -140,9 +156,16 @@ class JoyToCmdVelNode(Node):
         yaw_direction_fixed = yaw_after_deadzone * yaw_sign
 
         # 4) 先算目标速度，不在回调里立刻发布；交给定时器做平滑和限幅。
-        self.target_cmd.linear.x = forward_direction_fixed * linear_scale
-        self.target_cmd.linear.y = lateral_direction_fixed * lateral_scale
-        self.target_cmd.angular.z = yaw_direction_fixed * angular_scale
+        target_linear_x = forward_direction_fixed * linear_scale
+        target_linear_y = lateral_direction_fixed * lateral_scale
+        target_angular_z = yaw_direction_fixed * angular_scale
+
+        if self.should_update_target(self.target_cmd.linear.x, target_linear_x, target_linear_epsilon):
+            self.target_cmd.linear.x = target_linear_x
+        if self.should_update_target(self.target_cmd.linear.y, target_linear_y, target_lateral_epsilon):
+            self.target_cmd.linear.y = target_linear_y
+        if self.should_update_target(self.target_cmd.angular.z, target_angular_z, target_angular_epsilon):
+            self.target_cmd.angular.z = target_angular_z
 
     def publish_smoothed_cmd(self) -> None:
         """按固定频率输出平滑后的 /cmd_vel，避免输入抖动直接打到底盘。"""
