@@ -1,6 +1,7 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -33,6 +34,9 @@ def generate_launch_description():
     )
     rviz_config = PathJoinSubstitution(
         [FindPackageShare('car_description'), 'rviz', 'car.rviz']
+    )
+    localization_launch = PathJoinSubstitution(
+        [FindPackageShare('nav2_bringup'), 'launch', 'localization_launch.py']
     )
 
     robot_description = {
@@ -102,19 +106,17 @@ def generate_launch_description():
                 'scan_mode': scan_mode,
             }],
         ),
-        Node(
-            package='nav2_map_server',
-            executable='map_server',
-            name='map_server',
-            output='screen',
-            parameters=[params_file, {'yaml_filename': map_yaml}],
-        ),
-        Node(
-            package='nav2_amcl',
-            executable='amcl',
-            name='amcl',
-            output='screen',
-            parameters=[params_file],
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(localization_launch),
+            launch_arguments={
+                'map': map_yaml,
+                'use_sim_time': 'false',
+                'params_file': params_file,
+                'autostart': 'true',
+                'use_composition': 'False',
+                'use_respawn': 'False',
+                'log_level': 'info',
+            }.items(),
         ),
         Node(
             package='rviz2',
