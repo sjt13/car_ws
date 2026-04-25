@@ -488,7 +488,71 @@ source scripts/create_udev_rules.sh
 
 ---
 
-## 9. 最小导航启动（载入已保存地图）
+## 9. 定位优先启动（先确保地图能出来）
+
+如果你遇到 `Fixed Frame` 里根本没有 `map`，先不要继续硬开完整导航。先走这条**定位优先**入口，把地图和 `map` frame 先抬起来。
+
+### 9.1 启动定位链路
+
+```bash
+cd /home/elf/car/car_ws
+source /opt/ros/humble/setup.bash
+source /home/elf/car/car_ws/install/setup.bash
+
+ros2 launch car_driver localization_bringup.launch.py \
+  map:=/home/elf/maps/car_map_v1.yaml \
+  base_port:=/dev/ttyS9 \
+  lidar_port:=/dev/ttyUSB0 \
+  odom_yaw_scale:=0.53
+```
+
+这条只先拉起：
+
+- `robot_state_publisher`
+- `base_driver_node`
+- `rplidar_node`
+- `map_server`
+- `amcl`
+- `rviz2`
+
+### 9.2 确认地图是否已出来
+
+开新终端：
+
+```bash
+source /opt/ros/humble/setup.bash
+source /home/elf/car/car_ws/install/setup.bash
+ros2 topic echo /map --once
+```
+
+只要能看到 `/map`，说明地图链路已经起来了。
+
+### 9.3 手动激活 lifecycle 节点
+
+当前这台机器上，Nav2 lifecycle 自动 bringup 不稳定，所以保留一个手动激活脚本：
+
+```bash
+source /opt/ros/humble/setup.bash
+source /home/elf/car/car_ws/install/setup.bash
+/home/elf/car/car_ws/install/car_driver/share/car_driver/scripts/nav_lifecycle_activate.sh map_server
+/home/elf/car/car_ws/install/car_driver/share/car_driver/scripts/nav_lifecycle_activate.sh amcl
+```
+
+如果后面再接完整导航节点，再继续按需激活：
+
+```bash
+/home/elf/car/car_ws/install/car_driver/share/car_driver/scripts/nav_lifecycle_activate.sh all
+```
+
+### 9.4 当前已知风险
+
+- `rplidar_node` 仍偶发 `SL_RESULT_OPERATION_TIMEOUT`
+- 这会直接影响 AMCL 和导航，不是地图文件坏
+- 如果 `/map` 有了但定位还是起不来，先看 `/scan` 是否还在
+
+---
+
+## 10. 最小导航启动（载入已保存地图）
 
 当你已经用 `slam_toolbox` 存好了地图，例如：
 

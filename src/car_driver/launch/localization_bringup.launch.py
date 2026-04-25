@@ -1,7 +1,6 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, TimerAction
+from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -35,7 +34,6 @@ def generate_launch_description():
     rviz_config = PathJoinSubstitution(
         [FindPackageShare('car_description'), 'rviz', 'car.rviz']
     )
-
 
     robot_description = {
         'robot_description': Command(['xacro ', xacro_file])
@@ -104,85 +102,19 @@ def generate_launch_description():
                 'scan_mode': scan_mode,
             }],
         ),
-        TimerAction(
-            period=2.0,
-            actions=[
-                Node(
-                    package='nav2_map_server',
-                    executable='map_server',
-                    name='map_server',
-                    output='screen',
-                    parameters=[params_file, {'yaml_filename': map_yaml}],
-                ),
-                Node(
-                    package='nav2_amcl',
-                    executable='amcl',
-                    name='amcl',
-                    output='screen',
-                    parameters=[params_file],
-                ),
-            ],
+        Node(
+            package='nav2_map_server',
+            executable='map_server',
+            name='map_server',
+            output='screen',
+            parameters=[params_file, {'yaml_filename': map_yaml}],
         ),
-        TimerAction(
-            period=3.0,
-            actions=[
-                Node(
-                    package='nav2_controller',
-                    executable='controller_server',
-                    name='controller_server',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static'), ('cmd_vel', 'cmd_vel_nav')],
-                ),
-                Node(
-                    package='nav2_smoother',
-                    executable='smoother_server',
-                    name='smoother_server',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static')],
-                ),
-                Node(
-                    package='nav2_planner',
-                    executable='planner_server',
-                    name='planner_server',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static')],
-                ),
-                Node(
-                    package='nav2_behaviors',
-                    executable='behavior_server',
-                    name='behavior_server',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static')],
-                ),
-                Node(
-                    package='nav2_bt_navigator',
-                    executable='bt_navigator',
-                    name='bt_navigator',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static')],
-                ),
-                Node(
-                    package='nav2_waypoint_follower',
-                    executable='waypoint_follower',
-                    name='waypoint_follower',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static')],
-                ),
-                Node(
-                    package='nav2_velocity_smoother',
-                    executable='velocity_smoother',
-                    name='velocity_smoother',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static'), ('cmd_vel', 'cmd_vel_nav'), ('cmd_vel_smoothed', 'cmd_vel')],
-                ),
-            ],
+        Node(
+            package='nav2_amcl',
+            executable='amcl',
+            name='amcl',
+            output='screen',
+            parameters=[params_file],
         ),
         Node(
             package='rviz2',
