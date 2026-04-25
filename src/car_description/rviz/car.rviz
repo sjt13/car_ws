@@ -11,6 +11,22 @@ Visualization Manager:
       Name: Grid
       Plane Cell Count: 20
       Plane: XY
+    - Class: rviz_default_plugins/Map
+      Enabled: true
+      Name: Map
+      Topic:
+        Value: /map
+      Alpha: 0.7
+      Color Scheme: map
+      Draw Behind: true
+    - Class: rviz_default_plugins/LaserScan
+      Enabled: true
+      Name: LaserScan
+      Topic:
+        Value: /scan
+      Color Transformer: Intensity
+      Size (Pixels): 3
+      Style: Flat Squares
     - Class: rviz_default_plugins/RobotModel
       Enabled: true
       Name: RobotModel
@@ -22,12 +38,18 @@ Visualization Manager:
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: base_footprint
+    Fixed Frame: map
   Name: root
   Tools:
     - Class: rviz_default_plugins/Interact
     - Class: rviz_default_plugins/MoveCamera
     - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/SetInitialPose
+      Topic:
+        Value: /initialpose
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Value: /goal_pose
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
