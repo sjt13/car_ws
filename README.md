@@ -488,7 +488,66 @@ source scripts/create_udev_rules.sh
 
 ---
 
-## 9. 更新维护约定
+## 9. 最小导航启动（载入已保存地图）
+
+当你已经用 `slam_toolbox` 存好了地图，例如：
+
+- `/home/elf/maps/car_map_v1.yaml`
+
+就不要继续开建图模式了，直接切到导航定位模式。
+
+### 9.1 启动最小导航链路
+
+```bash
+cd /home/elf/car/car_ws
+source /opt/ros/humble/setup.bash
+source /home/elf/car/car_ws/install/setup.bash
+
+ros2 launch car_driver nav_bringup.launch.py \
+  map:=/home/elf/maps/car_map_v1.yaml \
+  base_port:=/dev/ttyS9 \
+  lidar_port:=/dev/ttyUSB0 \
+  odom_yaw_scale:=0.53
+```
+
+这个启动会一起拉起：
+
+- `robot_state_publisher`
+- `base_driver_node`
+- `rplidar_node`
+- `map_server`
+- `amcl`
+- `nav2_bringup` 的最小导航栈
+- `rviz2`
+
+### 9.2 第一次启动后要做什么
+
+1. 在 RViz 里确认地图已经载入
+2. 用 **2D Pose Estimate** 给车一个初始位姿
+3. 看激光是否能贴住墙
+4. 再用 **Nav2 Goal** 发近距离目标点测试
+
+### 9.3 这套默认参数的取向
+
+当前 `nav2_params.yaml` 是按这台小麦轮车的“先跑通、先稳住”思路给的：
+
+- `amcl` 使用 `OmniMotionModel`
+- `base_frame_id = base_footprint`
+- 速度、加速度、膨胀半径都偏保守
+- 目标是先完成定位与近距离导航闭环，不是先卷极限性能
+
+如果后面出现：
+
+- 走得太怂
+- 横移不积极
+- 贴障太保守
+- 到点角度收不紧
+
+再单独调 `nav2_params.yaml`，别一上来乱改三坨。
+
+---
+
+## 10. 更新维护约定
 
 
 后续每次对 `car_ws` 做出有意义更新时，应该同步更新本 README，至少补充：
