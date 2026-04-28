@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
 
+"""RPLidar ROS2 launch 入口。
+
+这个文件的作用：
+1. 为对应型号的 RPLidar 提供默认串口、波特率、frame_id 和扫描模式参数；
+2. 启动 `rplidar_node` 发布 `/scan`；
+3. 若文件名带 `view_`，则额外启动 RViz 方便直接看扫描结果。
+
+它属于 `rplidar_ros` 的 ROS 包装层，不是底层 SDK 实现。
+"""
+
+
 import os
 
 from ament_index_python.packages import get_package_share_directory

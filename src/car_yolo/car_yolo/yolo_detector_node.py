@@ -1,3 +1,14 @@
+"""车端 RKNN YOLO 检测节点。
+
+这个文件的作用：
+1. 直接读取本机摄像头画面；
+2. 调用 RKNN 模型做目标检测；
+3. 把检测结果发布为 `/yolo/detections`；
+4. 同时发布带框图像 `/yolo/image_annotated` 和运行帧率 `/yolo/debug_fps`。
+
+它当前解决的是“目标在图像里哪里”，不是“目标在地图里哪里”。
+"""
+
 import argparse
 import os
 import sys

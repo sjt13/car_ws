@@ -1,5 +1,12 @@
-// 这个文件负责把 ROS2 的 /cmd_vel 速度指令转换成 STM32 已有串口协议帧，
-// 并通过 UART 下发到底盘控制板，形成“上位机 -> 底盘”的最小可用主链路。
+// 这个文件实现车端底盘驱动节点 `base_driver_node`。
+//
+// 它的核心职责有四件事：
+// 1. 把 ROS2 的 `/cmd_vel` 速度指令转换成 STM32 已有串口协议帧；
+// 2. 通过 UART 下发到底盘控制板，形成“上位机 -> 底盘”的控制链；
+// 3. 接收 STM32 上行 `$TEL` 遥测，解析出底盘速度、轮速和 IMU 原始值；
+// 4. 发布 `/imu/data_raw`、`/wheel_ticks`、`/odom` 以及 `odom -> base_footprint` TF。
+//
+// 你可以把它理解成：ROS2 世界和底盘 MCU 世界之间的“协议翻译 + 数据桥接节点”。
 #include "car_driver/base_driver_node.hpp"
 
 // 算法工具：用于限幅时的 std::min/std::max。

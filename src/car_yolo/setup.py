@@ -1,3 +1,13 @@
+"""car_yolo 包的 setuptools 安装入口。
+
+这个文件的作用：
+1. 定义 `car_yolo` 包的安装信息；
+2. 把 launch 文件一起安装到 share 目录；
+3. 注册 `yolo_detector_node` 控制台入口，供 `ros2 run` 调用。
+
+它不是推理逻辑本体，真正的检测逻辑在 `car_yolo/yolo_detector_node.py`。
+"""
+
 from setuptools import find_packages, setup
 
 package_name = 'car_yolo'

@@ -1,4 +1,15 @@
 from launch import LaunchDescription
+"""启动“底盘 + 雷达 + 定位 + Nav2 导航”的完整导航入口。
+
+这个文件的作用：
+1. 启动车体模型、底盘驱动和雷达驱动；
+2. include 官方 `localization_launch.py`，负责地图与 AMCL；
+3. include 官方 `navigation_launch.py`，负责 planner/controller/bt_navigator；
+4. 可选启动 RViz，直接做定位与导航测试。
+
+这是当前项目里正式的导航入口，采用“稳定定位底座 + 官方导航叠加”的结构，
+避免旧版手搓节点顺序和 lifecycle 带来的不稳定问题。
+"""
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource

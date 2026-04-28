@@ -1,3 +1,10 @@
+# 这个测试文件用于运行 PEP257 文档字符串规范检查。
+#
+# 作用：
+# 1. 在 `colcon test` 时检查 Python 文件的 docstring 书写是否符合规范；
+# 2. 约束注释/文档风格，避免完全裸奔；
+# 3. 它不参与运行时功能，只属于开发期质量检查。
+#
 # Copyright 2015 Open Source Robotics Foundation, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

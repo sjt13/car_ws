@@ -1,4 +1,13 @@
 from launch import LaunchDescription
+"""只启动底盘驱动 + 机器人模型发布的最小 bringup。
+
+这个文件的作用：
+1. 发布 URDF 对应的 robot_description；
+2. 启动 `base_driver_node`，把 /cmd_vel 下发到底盘；
+3. 为后续 odom、IMU、TF、串口联调提供最小入口。
+
+它不包含雷达、手柄和导航，适合单独排查底盘串口链路。
+"""
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node

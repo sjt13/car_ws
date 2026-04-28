@@ -1,3 +1,10 @@
+# 这个测试文件用于运行版权头检查。
+#
+# 作用：
+# 1. 在 `colcon test` 时检查源码是否带有预期版权声明；
+# 2. 当前模板里仍然保留了 skip，因此默认不会真正执行；
+# 3. 它不参与运行时功能，只属于包模板附带的质量检查项。
+#
 # Copyright 2015 Open Source Robotics Foundation, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

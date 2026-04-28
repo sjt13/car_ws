@@ -1,3 +1,10 @@
+// 这个头文件定义符号可见性宏（visibility macros）。
+//
+// 作用：
+// 1. 在 Windows / Linux / GCC 等不同平台下统一处理导出导入符号；
+// 2. 让 `rplidar_ros` 编译成共享库时，公开符号和内部符号边界清晰；
+// 3. 它不包含业务逻辑，只是跨平台构建层辅助头文件。
+//
 // Copyright 2016 Open Source Robotics Foundation, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");

@@ -1,6 +1,16 @@
 #ifndef CAR_DRIVER__BASE_DRIVER_NODE_HPP_
 #define CAR_DRIVER__BASE_DRIVER_NODE_HPP_
 
+// 这个头文件声明车端底盘驱动节点 `BaseDriverNode` 的全部接口和成员。
+//
+// 作用概括：
+// 1. 订阅 ROS2 `/cmd_vel`；
+// 2. 通过串口把速度指令编码为 STM32 协议帧并下发；
+// 3. 接收 STM32 上行 `$TEL` 遥测；
+// 4. 发布 IMU、轮速、里程计和 `odom -> base_footprint` TF。
+//
+// 如果把 `base_driver_node.cpp` 看作“怎么做”，这个头文件就是“有哪些能力和状态”。
+
 #include <array>
 #include <cstdint>
 #include <string>

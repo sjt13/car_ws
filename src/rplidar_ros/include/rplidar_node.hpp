@@ -1,6 +1,15 @@
 /*
  *  RPLIDAR ROS NODE
  *
+ *  这个头文件声明 `rplidar_ros::rplidar_node` 这个 ROS2 节点类。
+ *
+ *  作用概括：
+ *  1. 定义节点对外接口（构造、析构、发布扫描、启停服务）；
+ *  2. 声明连接雷达、设置扫描模式、循环发布等内部方法；
+ *  3. 管理参数、Publisher、Service、SDK 驱动指针和运行状态。
+ *
+ *  如果 `rplidar_node.cpp` 是“怎么做”，这个文件就是“它有哪些能力和成员”。
+ *
  *  Copyright (c) 2019 Hunter L. Allen
  */
 /*

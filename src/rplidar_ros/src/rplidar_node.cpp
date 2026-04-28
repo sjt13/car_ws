@@ -1,6 +1,16 @@
 /*
  *  RPLIDAR ROS2 NODE
  *
+ *  这个文件是 `rplidar_ros` 的主节点实现。
+ *
+ *  作用概括：
+ *  1. 读取串口 / TCP / UDP 等连接参数并连接雷达；
+ *  2. 调用 Slamtec SDK 读取扫描点；
+ *  3. 转换成 ROS2 `sensor_msgs/msg/LaserScan` 并发布；
+ *  4. 提供启停电机服务，作为项目里 `/scan` 的直接来源。
+ *
+ *  对你当前小车项目来说，它就是“雷达硬件数据 -> ROS `/scan`”这层桥接节点。
+ *
  *  Copyright (c) 2009 - 2014 RoboPeak Team
  *  http://www.robopeak.com
  *  Copyright (c) 2014 - 2022 Shanghai Slamtec Co., Ltd.

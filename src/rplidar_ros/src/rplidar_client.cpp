@@ -1,6 +1,13 @@
 /*
  *  SLLIDAR ROS2 CLIENT
  *
+ *  这个文件是一个最小化的激光订阅示例。
+ *
+ *  作用概括：
+ *  1. 订阅 `scan` 话题；
+ *  2. 把每帧 LaserScan 的角度范围和距离值打印到终端；
+ *  3. 主要用于验证雷达话题是否正常，而不是正式业务节点。
+ *
  *  Copyright (c) 2009 - 2014 RoboPeak Team
  *  http://www.robopeak.com
  *  Copyright (c) 2014 - 2022 Shanghai Slamtec Co., Ltd.

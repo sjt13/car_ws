@@ -1,4 +1,13 @@
 from launch import LaunchDescription
+"""只启动雷达、车体模型和可选 RViz 的轻量 launch。
+
+这个文件的作用：
+1. 启动 robot_state_publisher，保证 `laser_link` 等 TF 可见；
+2. 启动 `rplidar_node` 发布 `/scan`；
+3. 可选启动 RViz，用来单独检查雷达扫描效果。
+
+适合排查：串口雷达是否正常、TF 是否挂对、激光数据是否稳定。
+"""
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, Command, PathJoinSubstitution

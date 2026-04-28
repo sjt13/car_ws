@@ -1,4 +1,14 @@
 from launch import LaunchDescription
+"""启动“底盘 + 雷达 + 可选手柄 + 可选 RViz”的全量基础 bringup。
+
+这个文件的作用：
+1. 启动底盘串口驱动 `base_driver_node`；
+2. 启动 RPLidar 驱动 `rplidar_node`；
+3. 可选启动手柄节点，把 `/joy` 转成 `/cmd_vel`；
+4. 可选启动 RViz 观察地图、激光、TF 和车体模型。
+
+它负责“基础运行环境”，但还不包含 AMCL / Nav2。
+"""
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution

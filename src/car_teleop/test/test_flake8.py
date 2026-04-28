@@ -1,3 +1,10 @@
+# 这个测试文件用于运行 flake8 代码风格检查。
+#
+# 作用：
+# 1. 在 `colcon test` 时检查当前 Python 包是否存在基础风格问题；
+# 2. 失败时输出具体错误列表，便于统一修复；
+# 3. 它不参与运行时功能，只属于开发期质量检查。
+#
 # Copyright 2017 Open Source Robotics Foundation, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

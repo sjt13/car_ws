@@ -1,3 +1,13 @@
+"""car_teleop 包的 setuptools 安装入口。
+
+这个文件的作用：
+1. 定义包名、资源文件和安装方式；
+2. 注册 `joy_to_cmdvel_node` 命令行入口；
+3. 让 ROS2 能通过 `ros2 run car_teleop joy_to_cmdvel_node` 启动手柄节点。
+
+它不是运行逻辑本体，真正的控制逻辑在 `car_teleop/joy_to_cmdvel_node.py`。
+"""
+
 from setuptools import find_packages, setup
 
 package_name = 'car_teleop'

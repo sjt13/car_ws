@@ -1,4 +1,11 @@
 from launch import LaunchDescription
+"""启动车端 RKNN YOLO 检测节点的 launch 入口。
+
+这个文件的作用：
+1. 给 `yolo_detector_node` 提供模型路径、相机设备、目标平台等参数；
+2. 启动车端目标检测链，发布 `/yolo/detections`、标注图和 FPS；
+3. 方便在不同相机或不同 RKNN 模型之间切换测试。
+"""
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node

@@ -1,4 +1,14 @@
 from launch import LaunchDescription
+"""启动“底盘 + 雷达 + AMCL 定位”的定位入口。
+
+这个文件的作用：
+1. 启动车体模型、底盘驱动和雷达驱动；
+2. include 官方 `nav2_bringup/localization_launch.py`；
+3. 拉起 `map_server + amcl + lifecycle_manager_localization`；
+4. 可选启动 RViz，做地图匹配与初始位姿设置。
+
+它是当前项目里“稳定可用”的定位底座，不包含完整导航控制链。
+"""
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource

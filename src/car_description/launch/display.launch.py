@@ -1,3 +1,14 @@
+#!/usr/bin/env python3
+"""显示车体 URDF、TF、激光和地图的基础可视化 launch。
+
+这个文件的作用：
+1. 通过 xacro 生成 robot_description；
+2. 启动 robot_state_publisher / joint_state_publisher；
+3. 按需拉起 RViz，用于单独检查模型、TF 和基础显示配置。
+
+它更偏“看模型/看显示”的轻量入口，不负责底盘串口、雷达驱动或导航栈。
+"""
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
