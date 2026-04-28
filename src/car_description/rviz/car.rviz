@@ -31,6 +31,24 @@ Visualization Manager:
       Color Transformer: Intensity
       Size (Pixels): 3
       Style: Flat Squares
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: GlobalPlan
+      Topic:
+        Value: /plan
+      Color: 25; 255; 0
+      Line Style: Lines
+      Line Width: 0.03
+      Pose Style: None
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: LocalPlan
+      Topic:
+        Value: /local_plan
+      Color: 255; 170; 0
+      Line Style: Lines
+      Line Width: 0.02
+      Pose Style: None
     - Class: rviz_default_plugins/RobotModel
       Enabled: true
       Name: RobotModel
