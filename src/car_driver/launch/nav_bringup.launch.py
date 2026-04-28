@@ -1,15 +1,13 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
-
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    map_yaml = LaunchConfiguration('map')
-    params_file = LaunchConfiguration('params_file')
     use_rviz = LaunchConfiguration('use_rviz')
 
     base_port = LaunchConfiguration('base_port')
@@ -29,13 +27,24 @@ def generate_launch_description():
     angle_compensate = LaunchConfiguration('angle_compensate')
     scan_mode = LaunchConfiguration('scan_mode')
 
+    map_yaml = LaunchConfiguration('map')
+    params_file = LaunchConfiguration('params_file')
+    autostart = LaunchConfiguration('autostart')
+    use_respawn = LaunchConfiguration('use_respawn')
+    log_level = LaunchConfiguration('log_level')
+
     xacro_file = PathJoinSubstitution(
         [FindPackageShare('car_description'), 'urdf', 'car.urdf.xacro']
     )
     rviz_config = PathJoinSubstitution(
         [FindPackageShare('car_description'), 'rviz', 'car.rviz']
     )
-
+    localization_launch = PathJoinSubstitution(
+        [FindPackageShare('nav2_bringup'), 'launch', 'localization_launch.py']
+    )
+    navigation_launch = PathJoinSubstitution(
+        [FindPackageShare('nav2_bringup'), 'launch', 'navigation_launch.py']
+    )
 
     robot_description = {
         'robot_description': Command(['xacro ', xacro_file])
@@ -50,6 +59,9 @@ def generate_launch_description():
             ),
         ),
         DeclareLaunchArgument('use_rviz', default_value='true'),
+        DeclareLaunchArgument('autostart', default_value='true'),
+        DeclareLaunchArgument('use_respawn', default_value='False'),
+        DeclareLaunchArgument('log_level', default_value='info'),
         DeclareLaunchArgument('base_port', default_value='/dev/ttyS9'),
         DeclareLaunchArgument('base_baudrate', default_value='115200'),
         DeclareLaunchArgument('cmd_timeout', default_value='0.5'),
@@ -104,85 +116,28 @@ def generate_launch_description():
                 'scan_mode': scan_mode,
             }],
         ),
-        TimerAction(
-            period=2.0,
-            actions=[
-                Node(
-                    package='nav2_map_server',
-                    executable='map_server',
-                    name='map_server',
-                    output='screen',
-                    parameters=[params_file, {'yaml_filename': map_yaml}],
-                ),
-                Node(
-                    package='nav2_amcl',
-                    executable='amcl',
-                    name='amcl',
-                    output='screen',
-                    parameters=[params_file],
-                ),
-            ],
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(localization_launch),
+            launch_arguments={
+                'map': map_yaml,
+                'use_sim_time': 'false',
+                'params_file': params_file,
+                'autostart': autostart,
+                'use_composition': 'False',
+                'use_respawn': use_respawn,
+                'log_level': log_level,
+            }.items(),
         ),
-        TimerAction(
-            period=3.0,
-            actions=[
-                Node(
-                    package='nav2_controller',
-                    executable='controller_server',
-                    name='controller_server',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static'), ('cmd_vel', 'cmd_vel_nav')],
-                ),
-                Node(
-                    package='nav2_smoother',
-                    executable='smoother_server',
-                    name='smoother_server',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static')],
-                ),
-                Node(
-                    package='nav2_planner',
-                    executable='planner_server',
-                    name='planner_server',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static')],
-                ),
-                Node(
-                    package='nav2_behaviors',
-                    executable='behavior_server',
-                    name='behavior_server',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static')],
-                ),
-                Node(
-                    package='nav2_bt_navigator',
-                    executable='bt_navigator',
-                    name='bt_navigator',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static')],
-                ),
-                Node(
-                    package='nav2_waypoint_follower',
-                    executable='waypoint_follower',
-                    name='waypoint_follower',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static')],
-                ),
-                Node(
-                    package='nav2_velocity_smoother',
-                    executable='velocity_smoother',
-                    name='velocity_smoother',
-                    output='screen',
-                    parameters=[params_file],
-                    remappings=[('/tf', 'tf'), ('/tf_static', 'tf_static'), ('cmd_vel', 'cmd_vel_nav'), ('cmd_vel_smoothed', 'cmd_vel')],
-                ),
-            ],
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(navigation_launch),
+            launch_arguments={
+                'use_sim_time': 'false',
+                'params_file': params_file,
+                'autostart': autostart,
+                'use_composition': 'False',
+                'use_respawn': use_respawn,
+                'log_level': log_level,
+            }.items(),
         ),
         Node(
             package='rviz2',
