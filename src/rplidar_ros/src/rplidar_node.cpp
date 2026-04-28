@@ -81,6 +81,7 @@ class RPlidarNode : public rclcpp::Node
   private:    
     void init_param()
     {
+        // 初始化并读取节点参数：决定连接方式、雷达设备、输出话题和扫描行为。
         this->declare_parameter<std::string>("channel_type","serial");
         this->declare_parameter<std::string>("tcp_ip", "192.168.0.7");
         this->declare_parameter<int>("tcp_port", 20108);
@@ -119,6 +120,7 @@ class RPlidarNode : public rclcpp::Node
 
     bool getRPLIDARDeviceInfo(ILidarDriver * drv)
     {
+        // 读取设备基础信息，主要用于确认连接到的是哪台雷达、固件版本是否正常。
         sl_result     op_result;
         sl_lidar_response_device_info_t devinfo;
 
@@ -145,6 +147,7 @@ class RPlidarNode : public rclcpp::Node
 
     bool checkRPLIDARHealth(ILidarDriver * drv)
     {
+        // 读取雷达健康状态；若设备自检都报错，继续扫也没有意义。
         sl_result     op_result;
         sl_lidar_response_device_health_t healthinfo;
         op_result = drv->getHealth(healthinfo);
@@ -173,6 +176,7 @@ class RPlidarNode : public rclcpp::Node
     bool stop_motor(const std::shared_ptr<std_srvs::srv::Empty::Request> req,
                     std::shared_ptr<std_srvs::srv::Empty::Response> res)
     {
+        // ROS 服务回调：外部请求停雷达时，实际调用内部 stop()。
         (void)req;
         (void)res;
 
@@ -194,6 +198,7 @@ class RPlidarNode : public rclcpp::Node
     bool start_motor(const std::shared_ptr<std_srvs::srv::Empty::Request> req,
                     std::shared_ptr<std_srvs::srv::Empty::Response> res)
     {
+        // ROS 服务回调：外部请求开雷达时，实际调用内部 start()。
         (void)req;
         (void)res;
 
@@ -245,6 +250,7 @@ class RPlidarNode : public rclcpp::Node
                   float max_distance,
                   std::string frame_id)
     {
+        // 把 SDK 扫描点数组整理成标准 ROS LaserScan 消息并发布。
         static int scan_count = 0;
         auto scan_msg = std::make_shared<sensor_msgs::msg::LaserScan>();
 
@@ -296,6 +302,7 @@ class RPlidarNode : public rclcpp::Node
     }
 
     bool set_scan_mode() {
+        // 根据参数选择扫描模式，并顺便推导角度补偿倍率、最大量程等运行期信息。
         sl_result     op_result;
         LidarScanMode current_scan_mode;
         if (scan_mode.empty()) {
@@ -348,6 +355,7 @@ class RPlidarNode : public rclcpp::Node
     }
     bool start()
     {
+        // 真正执行“开转 + 开扫”的内部函数。
         if (nullptr == drv) {
             return false;
         }
@@ -365,6 +373,7 @@ class RPlidarNode : public rclcpp::Node
 
     void stop()
     {
+        // 真正执行“停扫 + 停电机”的内部函数。
         if (nullptr == drv) {
             return;
         }
@@ -378,6 +387,7 @@ class RPlidarNode : public rclcpp::Node
 public:    
     int work_loop()
     {        
+        // 主工作循环：连设备、建 publisher/service、持续取点并发布 `/scan`。
         init_param();
         int ver_major = SL_LIDAR_SDK_VERSION_MAJOR;
         int ver_minor = SL_LIDAR_SDK_VERSION_MINOR;
@@ -460,6 +470,7 @@ public:
         rclcpp::Time end_scan_time;
         double scan_duration;
         while (rclcpp::ok() && !need_exit) {
+            // 每轮尝试抓取一帧高质量扫描数据，再按配置决定是否做角度补偿后发布。
             sl_lidar_response_measurement_node_hq_t nodes[8192];
             size_t   count = _countof(nodes);
 
@@ -491,6 +502,8 @@ public:
                 float angle_max = DEG2RAD(359.0f);
                 if (op_result == SL_RESULT_OK) {
                     if (angle_compensate) {
+                        // 角度补偿：把原始不均匀角度点云补齐到更均匀的角分辨率，
+                        // 方便下游按 LaserScan 习惯使用。
                         //const int angle_compensate_multiple = 1;
                         const int angle_compensate_nodes_count = 360*angle_compensate_multiple;
                         int angle_compensate_offset = 0;
@@ -522,6 +535,7 @@ public:
                             angle_compensate_nodes = nullptr;
                         }
                     } else {
+                        // 不做角度补偿时，只截取首尾有效点，按真实角范围直接发布。
                         int start_node = 0, end_node = 0;
                         int i = 0;
                         // find the first valid node and last valid node
@@ -598,6 +612,7 @@ void ExitHandler(int sig)
 
 int main(int argc, char * argv[])
 {
+  // 程序入口：初始化 ROS2，创建节点，执行工作循环，最后正常收尾退出。
   rclcpp::init(argc, argv);  
   auto rplidar_node = std::make_shared<RPlidarNode>(rclcpp::NodeOptions());
   signal(SIGINT,ExitHandler);

@@ -51,6 +51,15 @@ CLASSES = (
 
 
 def filter_boxes(boxes, box_confidences, box_class_probs):
+    """先做第一轮置信度过滤。
+
+    这里把：
+    - 目标框置信度
+    - 类别最大分数
+
+    两者相乘后与 `OBJ_THRESH` 比较，低于阈值的候选框直接丢掉，
+    这样可以减少后续 NMS 的计算量。
+    """
     box_confidences = box_confidences.reshape(-1)
     class_max_score = np.max(box_class_probs, axis=-1)
     classes = np.argmax(box_class_probs, axis=-1)
@@ -62,6 +71,12 @@ def filter_boxes(boxes, box_confidences, box_class_probs):
 
 
 def nms_boxes(boxes, scores):
+    """对同类候选框做 NMS（非极大值抑制）。
+
+    目的：
+    - 同一个目标通常会被模型打出多个重叠框；
+    - 这里只保留分数最高、且重叠不过分严重的框。
+    """
     x = boxes[:, 0]
     y = boxes[:, 1]
     w = boxes[:, 2] - boxes[:, 0]
@@ -86,6 +101,7 @@ def nms_boxes(boxes, scores):
 
 
 def dfl(position):
+    """把 DFL（Distribution Focal Loss）形式的回归输出还原成连续框坐标。"""
     import torch
     x = torch.tensor(position)
     n, c, h, w = x.shape
@@ -99,6 +115,7 @@ def dfl(position):
 
 
 def box_process(position):
+    """把单尺度特征图输出转换成该尺度下的候选框坐标。"""
     grid_h, grid_w = position.shape[2:4]
     col, row = np.meshgrid(np.arange(0, grid_w), np.arange(0, grid_h))
     col = col.reshape(1, 1, grid_h, grid_w)
@@ -113,6 +130,15 @@ def box_process(position):
 
 
 def post_process(input_data):
+    """对 RKNN 原始输出做完整后处理。
+
+    流程：
+    1. 按 YOLO 多分支输出拆包；
+    2. 每个分支还原候选框；
+    3. 拉平并拼接所有尺度；
+    4. 先阈值过滤，再按类别做 NMS；
+    5. 返回最终框、类别和分数。
+    """
     boxes, scores, classes_conf = [], [], []
     default_branch = 3
     pair_per_branch = len(input_data) // default_branch
@@ -160,6 +186,7 @@ def post_process(input_data):
 
 
 def draw(image, boxes, scores, classes):
+    """在图像上画检测框和类别分数，供调试观察。"""
     for box, score, cl in zip(boxes, scores, classes):
         top, left, right, bottom = [int(_b) for _b in box]
         cv2.rectangle(image, (top, left), (right, bottom), (255, 0, 0), 2)
@@ -175,8 +202,14 @@ def draw(image, boxes, scores, classes):
 
 
 class YoloDetectorNode(Node):
+    """车端视觉检测节点。
+
+    它把“摄像头 -> RKNN 推理 -> ROS 话题输出”串成一个固定周期循环。
+    """
+
     def __init__(self):
         super().__init__('yolo_detector_node')
+        # 先声明运行参数，便于换模型、换相机、换输出话题而不用改源码。
         self.declare_parameter('model_path', '/home/elf/rknn/yolo11/model/yolo11n.rknn')
         self.declare_parameter('target', 'rk3588')
         self.declare_parameter('device_id', '')
@@ -194,6 +227,7 @@ class YoloDetectorNode(Node):
         self.camera_frame_id = self.get_parameter('camera_frame_id').value
         self.timer_hz = float(self.get_parameter('timer_hz').value)
 
+        # 初始化图像桥、letterbox 辅助器和 RKNN 推理容器。
         self.bridge = CvBridge()
         self.co_helper = COCO_test_helper(enable_letter_box=True)
         self.model = RKNN_model_container(self.model_path, self.target, self.device_id)
@@ -208,6 +242,7 @@ class YoloDetectorNode(Node):
             Float32, self.get_parameter('publish_fps_topic').value, 10
         )
 
+        # 打开摄像头，并建立固定频率的检测循环。
         self.cap = self._open_capture(self.camera_device)
         self.timer = self.create_timer(1.0 / max(self.timer_hz, 1.0), self.timer_callback)
         self.get_logger().info(
@@ -215,6 +250,7 @@ class YoloDetectorNode(Node):
         )
 
     def _open_capture(self, camera_device: str):
+        """按设备名或索引打开摄像头。"""
         if camera_device.startswith('/dev/video'):
             cap = cv2.VideoCapture(camera_device, cv2.CAP_V4L2)
         else:
@@ -227,6 +263,7 @@ class YoloDetectorNode(Node):
         return cap
 
     def _build_detection_array(self, stamp, boxes, classes, scores):
+        """把后处理结果打包成 ROS `Detection2DArray` 消息。"""
         msg = Detection2DArray()
         msg.header.stamp = stamp
         msg.header.frame_id = self.camera_frame_id
@@ -255,6 +292,7 @@ class YoloDetectorNode(Node):
         return msg
 
     def timer_callback(self):
+        """固定周期执行一次：读帧、推理、后处理、发布结果。"""
         begin = time.time()
         ret, frame = self.cap.read()
         if not ret:
@@ -262,6 +300,7 @@ class YoloDetectorNode(Node):
             return
 
         stamp = self.get_clock().now().to_msg()
+        # 先做 letterbox，再转成 RGB，保持输入尺寸和训练/导出期一致。
         img = self.co_helper.letter_box(im=frame.copy(), new_shape=(IMG_SIZE[1], IMG_SIZE[0]), pad_color=(0, 0, 0))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         outputs = self.model.run([img])
@@ -269,6 +308,7 @@ class YoloDetectorNode(Node):
 
         annotated = frame.copy()
         real_boxes = None
+        # `boxes` 还是 letterbox 坐标；发布前要映射回原图坐标。
         if boxes is not None:
             real_boxes = self.co_helper.get_real_box(boxes)
             draw(annotated, real_boxes, scores, classes)
@@ -294,6 +334,7 @@ class YoloDetectorNode(Node):
         self.fps_pub.publish(fps_msg)
 
     def destroy_node(self):
+        """节点退出时释放摄像头和 RKNN 模型句柄。"""
         try:
             if hasattr(self, 'cap') and self.cap is not None:
                 self.cap.release()
@@ -304,6 +345,7 @@ class YoloDetectorNode(Node):
 
 
 def main(args=None):
+    """节点入口：初始化 ROS，上电节点，退出时做资源回收。"""
     rclpy.init(args=args)
     node = None
     try:
