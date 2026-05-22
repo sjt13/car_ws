@@ -81,7 +81,7 @@ def generate_launch_description():
         DeclareLaunchArgument('imu_frame_id', default_value='imu_link'),
         DeclareLaunchArgument('odom_frame_id', default_value='odom'),
         DeclareLaunchArgument('base_frame_id', default_value='base_footprint'),
-        DeclareLaunchArgument('odom_yaw_scale', default_value='0.53'),
+        DeclareLaunchArgument('odom_yaw_scale', default_value='0.91'),
         DeclareLaunchArgument('lidar_port', default_value='/dev/ttyUSB0'),
         DeclareLaunchArgument('lidar_baudrate', default_value='460800'),
         DeclareLaunchArgument('lidar_frame_id', default_value='laser_link'),

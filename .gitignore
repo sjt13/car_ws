@@ -15,3 +15,8 @@ log/
 
 # Keep source only by default
 # src/ is intentionally tracked
+
+# Local debug artifacts
+slam_motion_debug*/
+frames_*.gv
+frames_*.pdf

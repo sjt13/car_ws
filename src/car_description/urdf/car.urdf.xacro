@@ -56,7 +56,7 @@
        目前实物前后反装，先用 yaw=pi 修正朝向。 -->
   <xacro:property name="laser_x" value="0.000"/>
   <xacro:property name="laser_y" value="0.000"/>
-  <xacro:property name="laser_z" value="0.120"/>
+  <xacro:property name="laser_z" value="0.080"/>
   <xacro:property name="laser_radius" value="0.035"/>
   <xacro:property name="laser_height" value="0.040"/>
   <xacro:property name="laser_pole_radius" value="0.008"/>
