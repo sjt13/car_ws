@@ -181,7 +181,7 @@ void BaseDriverNode::declareAndLoadParameters()
   // Odom 角速度死区（rad/s）：过滤静止时角速度噪声导致的朝向/轨迹漂移。
   declare_parameter<double>("odom_angular_deadband", 0.10);
   // Odom 角速度比例修正：用于把 STM32 上行 iw 的角速度按实测比例缩放。
-  declare_parameter<double>("odom_yaw_scale", 0.53);
+  declare_parameter<double>("odom_yaw_scale", 0.91);
   // x 方向最大线速度限幅（m/s）。
   declare_parameter<double>("max_vx", 1.5);
   // y 方向最大线速度限幅（m/s）。
@@ -235,8 +235,8 @@ void BaseDriverNode::declareAndLoadParameters()
   }
   // yaw 比例不能 <= 0，否则角度会反号或直接失效。
   if (odom_yaw_scale_ <= 0.0) {
-    RCLCPP_WARN(get_logger(), "odom_yaw_scale <= 0 不合法，已回退到 0.53");
-    odom_yaw_scale_ = 0.53;
+    RCLCPP_WARN(get_logger(), "odom_yaw_scale <= 0 不合法，已回退到 0.91");
+    odom_yaw_scale_ = 0.91;
   }
   // 防御性校验：超时不能 <= 0，否则会一直判定超时。
   if (cmd_timeout_sec_ <= 0.0) {
