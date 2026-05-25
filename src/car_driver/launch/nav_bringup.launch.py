@@ -62,12 +62,10 @@ def generate_launch_description():
     }
 
     return LaunchDescription([
-        DeclareLaunchArgument('map', default_value='/home/elf/maps/car_map_v1.yaml'),
+        DeclareLaunchArgument('map', default_value='/home/elf/car/car_ws/maps/my_map.yaml'),
         DeclareLaunchArgument(
             'params_file',
-            default_value=PathJoinSubstitution(
-                [FindPackageShare('car_description'), 'rviz', 'nav2_params.yaml']
-            ),
+            default_value='/home/elf/car/car_ws/src/car_description/rviz/nav2_params.yaml',
         ),
         DeclareLaunchArgument('use_rviz', default_value='true'),
         DeclareLaunchArgument('autostart', default_value='true'),

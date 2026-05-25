@@ -41,7 +41,7 @@ install(
 )
 
 install(
-  DIRECTORY launch scripts
+  DIRECTORY launch scripts config
   DESTINATION share/${PROJECT_NAME}
 )
 

@@ -257,8 +257,8 @@ ros2 launch car_driver localization_bringup.launch.py \
 ### 包含的参数
 
 #### 地图与 Nav2 启动参数
-- `map`，默认 `/home/elf/maps/car_map_v1.yaml`
-- `params_file`，默认 `car_description/rviz/nav2_params.yaml`
+- `map`，默认 `/home/elf/car/car_ws/maps/my_map.yaml`
+- `params_file`，默认 `/home/elf/car/car_ws/src/car_description/rviz/nav2_params.yaml`
 - `use_rviz`，默认 `true`
 - `autostart`，默认 `true`
 - `use_respawn`，默认 `False`
@@ -302,10 +302,18 @@ ros2 launch car_driver localization_bringup.launch.py \
 ros2 launch car_driver nav_bringup.launch.py
 ```
 
+当前常用完整写法（现场优先用这个，路径更明确）：
+
+```bash
+ros2 launch car_driver nav_bringup.launch.py \
+  params_file:=/home/elf/car/car_ws/src/car_description/rviz/nav2_params.yaml \
+  map:=/home/elf/car/car_ws/maps/my_map.yaml
+```
+
 #### 指定地图文件
 ```bash
 ros2 launch car_driver nav_bringup.launch.py \
-  map:=/home/elf/maps/car_map_v1.yaml
+  map:=/home/elf/car/car_ws/maps/my_map.yaml
 ```
 
 #### 不开 RViz
@@ -366,3 +374,42 @@ ros2 launch car_driver nav_bringup.launch.py autostart:=false
 - 调导航和避障参数
 
 一句话总结：**完整导航测试用它。**
+
+---
+
+## 5. `orbbec_bringup.launch.py`
+
+### 功能
+启动 Astra Pro 当前在 ELF2 上可用的 RGB + Depth 拆分链路：
+
+- RGB：通过 UVC `/dev/video21` 由 `v4l2_camera` 发布；
+- Depth：通过 `orbbec_camera` depth-only 发布；
+- 不启用 Orbbec/OpenNI 的 color stream，因为当前实测会报 `OB_SENSOR_COLOR Match openni video mode failed`。
+
+### 输出话题
+- `/camera/color/image_raw`
+- `/camera/color/camera_info`
+- `/camera/depth/image_raw`
+- `/camera/depth/camera_info`
+
+### 常用启动指令
+```bash
+ros2 launch car_driver orbbec_bringup.launch.py
+```
+
+如果现场 depth 默认格式不稳，优先试上午验证过的 `Y11`：
+
+```bash
+ros2 launch car_driver orbbec_bringup.launch.py depth_format:=Y11
+```
+
+### 常用参数
+- `rgb_device`，默认 `/dev/video21`
+- `rgb_width` / `rgb_height`，默认 `640` / `480`
+- `rgb_pixel_format`，默认 `YUYV`
+- `rgb_frame_id`，默认 `camera_color_optical_frame`
+- `depth_width` / `depth_height`，默认 `320` / `240`
+- `depth_fps`，默认 `30`
+- `depth_format`，默认 `Y12`
+
+注意：RGB 的 `/camera/color/camera_info` 当前没有正式标定文件时会是空内参；目标落图只是 MVP 粗验证，不要把它当标定级坐标。

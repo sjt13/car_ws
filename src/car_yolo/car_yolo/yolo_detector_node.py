@@ -214,7 +214,8 @@ class YoloDetectorNode(Node):
         self.declare_parameter('target', 'rk3588')
         self.declare_parameter('device_id', '')
         self.declare_parameter('camera_device', '/dev/video21')
-        self.declare_parameter('camera_frame_id', 'camera_link')
+        self.declare_parameter('image_topic', '')
+        self.declare_parameter('camera_frame_id', 'camera_color_optical_frame')
         self.declare_parameter('detections_topic', '/yolo/detections')
         self.declare_parameter('annotated_image_topic', '/yolo/image_annotated')
         self.declare_parameter('publish_fps_topic', '/yolo/debug_fps')
@@ -224,6 +225,7 @@ class YoloDetectorNode(Node):
         self.target = self.get_parameter('target').value
         self.device_id = self.get_parameter('device_id').value or None
         self.camera_device = self.get_parameter('camera_device').value
+        self.image_topic = self.get_parameter('image_topic').value
         self.camera_frame_id = self.get_parameter('camera_frame_id').value
         self.timer_hz = float(self.get_parameter('timer_hz').value)
 
@@ -242,11 +244,22 @@ class YoloDetectorNode(Node):
             Float32, self.get_parameter('publish_fps_topic').value, 10
         )
 
-        # 打开摄像头，并建立固定频率的检测循环。
-        self.cap = self._open_capture(self.camera_device)
+        # 图像输入支持两种模式：
+        # 1. 默认直接打开 /dev/videoX，适合单独验证 YOLO；
+        # 2. 指定 image_topic 订阅 ROS 图像，适合和 v4l2_camera/depth 同时使用，避免重复抢 /dev/video21。
+        self.cap = None
+        self.latest_frame = None
+        self.latest_stamp = None
+        if self.image_topic:
+            self.image_sub = self.create_subscription(Image, self.image_topic, self.image_callback, 10)
+            input_desc = f'image_topic={self.image_topic}'
+        else:
+            self.cap = self._open_capture(self.camera_device)
+            input_desc = f'camera={self.camera_device}'
+
         self.timer = self.create_timer(1.0 / max(self.timer_hz, 1.0), self.timer_callback)
         self.get_logger().info(
-            f'yolo_detector_node 已启动: model={self.model_path}, camera={self.camera_device}, target={self.target}'
+            f'yolo_detector_node 已启动: model={self.model_path}, {input_desc}, target={self.target}'
         )
 
     def _open_capture(self, camera_device: str):
@@ -291,15 +304,32 @@ class YoloDetectorNode(Node):
 
         return msg
 
+    def image_callback(self, msg: Image):
+        """接收 ROS 图像输入，避免和 v4l2_camera 重复抢占同一个 /dev/videoX。"""
+        try:
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as exc:  # cv_bridge 在不同发行版异常类型不完全一致
+            self.get_logger().warning(f'ROS 图像转换失败: {exc}')
+            return
+        self.latest_frame = frame
+        self.latest_stamp = msg.header.stamp
+
     def timer_callback(self):
         """固定周期执行一次：读帧、推理、后处理、发布结果。"""
         begin = time.time()
-        ret, frame = self.cap.read()
-        if not ret:
-            self.get_logger().warning('摄像头读帧失败，跳过本轮')
-            return
+        if self.image_topic:
+            if self.latest_frame is None:
+                self.get_logger().debug('还没有收到 ROS 图像，跳过本轮')
+                return
+            frame = self.latest_frame.copy()
+            stamp = self.latest_stamp or self.get_clock().now().to_msg()
+        else:
+            ret, frame = self.cap.read()
+            if not ret:
+                self.get_logger().warning('摄像头读帧失败，跳过本轮')
+                return
+            stamp = self.get_clock().now().to_msg()
 
-        stamp = self.get_clock().now().to_msg()
         # 先做 letterbox，再转成 RGB，保持输入尺寸和训练/导出期一致。
         img = self.co_helper.letter_box(im=frame.copy(), new_shape=(IMG_SIZE[1], IMG_SIZE[0]), pad_color=(0, 0, 0))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
