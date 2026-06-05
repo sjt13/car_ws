@@ -1,28 +1,38 @@
-# car_yolo 使用说明（给无人机侧）
+# car_yolo 使用说明（车端检测链）
 
-这份说明是给无人机侧队友看的，重点说三件事：
+`car_yolo` 是当前无人车侧的视觉检测包，负责在 RK3588 平台上读取车端 RGB 图像，运行 RKNN YOLO11 推理，并将结果以 ROS2 话题形式发布。
 
-1. `car_yolo` 现在会发布哪些 ROS2 话题
-2. 每条检测消息里每个字段代表什么
-3. 后续要怎么把“检测框”变成“地图里的目标位置”
+当前节点支持两种输入方式：
+- 直接打开本机 `/dev/videoX` 摄像头；
+- 订阅 ROS 图像话题，例如 `/camera/color/image_raw`。
 
-先把丑话说前面：**当前 `car_yolo` 只完成了“目标检测”这一步，还没有直接输出目标在地图中的 3D/2D 坐标。** 也就是说，现在拿到的是“这个目标出现在图像哪里”，不是“这个目标在地图上哪里”。后面还需要结合相机外参、载体位姿、深度/测距信息，才能真正落图。
+先把丑话说前面：**当前 `car_yolo` 已经完成的是“目标检测链”和第一版“目标落图/桥接链”，但还不是标定级语义地图系统。**
+
+也就是说，现在已经能回答：
+- 图像里有什么目标
+- 目标出现在图像的哪里
+- 置信度大概多少
+
+当前已经有两条落图入口：
+- 车端 RGB-D：`target_mapper_node` 默认用 depth 做目标落图，也可以切换到 `ground_plane` 模式做地面交点 fallback；
+- 空地协同：`uav_target_bridge_node` 把 `/uav/shared/target_pose` 桥接成车端 `map` 下的 `/uav/target_points_map` 和 `/uav/target_markers`。
 
 ---
 
 ## 1. 功能概述
 
-`car_yolo` 是车端基于 RKNN YOLO11 的 ROS2 检测节点。
-
-当前节点直接：
-
-- 从本机摄像头读取图像
+当前节点可以：
+- 从本机摄像头读取图像，或订阅 ROS 图像话题
 - 在 RK3588 上跑 RKNN 推理
 - 发布标准检测结果 `vision_msgs/Detection2DArray`
 - 发布带框可视化图像 `sensor_msgs/Image`
 - 发布当前推理帧率 `std_msgs/Float32`
+- 发布车端 RGB-D 目标落图结果
+- 发布 UAV 共享目标在车端 `map` 下的目标点和 RViz marker
 
-当前更偏向**检测链路验证版**，已经够你们无人机侧先对接“目标类别 + 图像框 + 时间戳 + 坐标系”这部分信息。
+`target_mapper_node` 订阅检测框、深度图、RGB 相机内参和 TF，输出目标点与 RViz Marker，用于第一版目标落图验证。
+
+`uav_target_bridge_node` 订阅无人机侧 `/uav/shared/target_pose`，通过 `map -> uav_map` TF 转成车端地图目标，用于 RViz 显示和人工确认导航。
 
 ---
 
@@ -34,529 +44,400 @@
 
 ```bash
 cd /home/elf/car/car_ws
+source /opt/ros/humble/setup.bash
 colcon build --packages-select car_yolo
 source install/setup.bash
 ```
 
-### 2.2 启动
+### 2.2 启动 YOLO 检测
+
+#### 单独验证 YOLO，直接打开摄像头
 
 ```bash
 ros2 launch car_yolo yolo_detector.launch.py
 ```
 
-### 2.3 常用可改参数
+#### 和 `orbbec_bringup` 同跑，订阅 RGB 图像话题
+
+这时不要再让 YOLO 直接抢 `/dev/video21`，应订阅 `v4l2_camera` 已发布的 RGB 图像：
+
+```bash
+ros2 launch car_yolo yolo_detector.launch.py \
+  image_topic:=/camera/color/image_raw \
+  camera_frame_id:=camera_color_optical_frame
+```
+
+### 2.3 启动目标落图 v1
+
+先确保这些基础链路稳定：
+- `ros2 launch car_driver orbbec_bringup.launch.py`
+- `ros2 launch car_yolo yolo_detector.launch.py image_topic:=/camera/color/image_raw camera_frame_id:=camera_color_optical_frame`
+- 车体 TF / 里程计链，例如 `car_description display.launch.py`、`car_driver bringup.launch.py` 或定位/导航 launch。
+
+默认用 depth 模式落到 `odom`：
+
+```bash
+ros2 launch car_yolo target_mapper.launch.py
+```
+
+如果 RGB-depth 配准短期不稳，可以切到地面交点模式：
+
+```bash
+ros2 launch car_yolo target_mapper.launch.py projection_mode:=ground_plane
+```
+
+如果只想先排除 `odom` 链路影响，可临时落到 `base_link`：
+
+```bash
+ros2 launch car_yolo target_mapper.launch.py target_frame:=base_link
+```
+
+### 2.4 常用可改参数
 
 ```bash
 ros2 launch car_yolo yolo_detector.launch.py \
   camera_device:=/dev/video21 \
-  camera_frame_id:=camera_link \
+  image_topic:=/camera/color/image_raw \
+  camera_frame_id:=camera_color_optical_frame \
   model_path:=/home/elf/rknn/yolo11/model/yolo11n.rknn \
   target:=rk3588 \
   timer_hz:=15.0
 ```
 
 参数说明：
-
 - `model_path`：RKNN 模型路径
 - `target`：推理目标平台，当前默认 `rk3588`
 - `device_id`：RKNN 设备 ID，一般留空
-- `camera_device`：摄像头设备节点，例如 `/dev/video21`
-- `camera_frame_id`：检测结果所属坐标系，当前默认 `camera_link`
+- `camera_device`：摄像头设备节点，例如 `/dev/video21`；仅在 `image_topic` 为空时使用
+- `image_topic`：ROS 图像输入话题；设置后 YOLO 不再直接打开 `/dev/video21`
+- `camera_frame_id`：检测结果所属坐标系，当前默认 `camera_color_optical_frame`
 - `timer_hz`：节点处理频率，默认 `15 Hz`
+
+### 2.5 启动 UAV 目标桥接
+
+如果只启动桥接节点：
+
+```bash
+ros2 launch car_yolo uav_target_bridge.launch.py
+```
+
+更常用的是通过车端一键链路启动 Nav2、静态 TF 和桥接节点：
+
+```bash
+ros2 launch car_driver uav_nav_bridge_bringup.launch.py
+```
+
+当前默认订阅：
+- `/uav/shared/target_pose`
+
+当前默认输出：
+- `/uav/target_points_map`
+- `/uav/target_markers`
 
 ---
 
 ## 3. 当前输出话题
 
 ### 3.1 `/yolo/detections`
-
 - **消息类型：** `vision_msgs/msg/Detection2DArray`
 - **作用：** 发布当前这一帧的所有检测框
 - **这是后续做目标定位时最核心的话题**
 
-可以这样看：
+查看方式：
 
 ```bash
 ros2 topic echo /yolo/detections
 ```
 
-#### 3.1.1 顶层结构
-
-`Detection2DArray` 主要包含：
-
-- `header`
-  - `stamp`：这帧检测结果对应的时间戳
-  - `frame_id`：检测结果所属坐标系，当前由参数 `camera_frame_id` 指定，默认是 `camera_link`
-- `detections[]`
-  - 一个数组，每个元素对应一个检测目标
-
-#### 3.1.2 每个 `detections[i]` 代表什么
-
-每个目标是一个 `vision_msgs/msg/Detection2D`，当前节点里实际填了这些关键字段：
-
-- `header.stamp`
-  - 这个检测的时间戳
-  - 和外层数组的时间一致
-- `header.frame_id`
-  - 这个检测所属坐标系
-  - 当前也是 `camera_link`
-- `id`
-  - 当前帧内的序号字符串，例如 `"0"`、`"1"`
-  - **注意：这不是跨帧稳定跟踪 ID**，只是这一帧里临时编号，下一帧会重新编号
-- `bbox`
-  - 2D 检测框
-- `results[]`
-  - 分类结果列表
-  - 当前实现里只放了一个最高置信度类别
-
-#### 3.1.3 `bbox` 里的每个量是什么意思
-
-`bbox` 表示图像里的矩形框，当前节点填充方式如下：
-
-- `bbox.center.position.x`
-  - 检测框中心点横坐标，单位：**像素**
-- `bbox.center.position.y`
-  - 检测框中心点纵坐标，单位：**像素**
-- `bbox.center.theta`
-  - 当前固定写 `0.0`
-  - 这里**暂时没有朝向语义**，可以忽略
-- `bbox.size_x`
-  - 检测框宽度，单位：**像素**
-- `bbox.size_y`
-  - 检测框高度，单位：**像素**
-
-如果你想还原左上/右下角：
-
-```text
-x_min = center_x - size_x / 2
-y_min = center_y - size_y / 2
-x_max = center_x + size_x / 2
-y_max = center_y + size_y / 2
-```
-
-#### 3.1.4 `results[0]` 里的每个量是什么意思
-
-当前每个检测只塞了一个最高分候选：
-
-- `results[0].hypothesis.class_id`
-  - 类别名字符串
-  - 例如：`person`、`car`、`bottle` 等
-- `results[0].hypothesis.score`
-  - 该类别的置信度，范围通常在 `0 ~ 1`
-
-也就是说，一个检测目标你们当前最该关心的是这四样：
-
-- 时间戳 `header.stamp`
-- 坐标系 `header.frame_id`
-- 框中心/大小 `bbox`
-- 类别与置信度 `results[0].hypothesis.class_id / score`
-
-#### 3.1.5 一个简化理解例子
-
-如果收到一条检测：
-
-```text
-class_id = person
-score = 0.91
-center_x = 320
-center_y = 180
-size_x = 100
-size_y = 220
-frame_id = camera_link
-```
-
-含义就是：
-
-- 在 `camera_link` 对应这路图像里
-- 时间戳对应的那一帧
-- 检测到一个 `person`
-- 置信度 0.91
-- 框中心在图像像素 `(320, 180)`
-- 框大小约 `100 x 220` 像素
-
-这仍然只是**图像平面信息**，还不是地图坐标。
-
----
+每个检测当前主要包含：
+- `header.stamp`：检测时间戳
+- `header.frame_id`：检测所属坐标系，默认 `camera_color_optical_frame`
+- `id`：当前帧内临时编号，不是跨帧跟踪 ID
+- `bbox.center.position.x / y`：检测框中心像素坐标
+- `bbox.size_x / size_y`：检测框宽高（像素）
+- `results[0].hypothesis.class_id`：类别名，例如 `red_ball` / `red_cube`
+- `results[0].hypothesis.score`：置信度
 
 ### 3.2 `/yolo/image_annotated`
-
 - **消息类型：** `sensor_msgs/msg/Image`
 - **作用：** 发布带检测框和类别标注的图像
-- **用途：** 主要用于调试和可视化，不建议直接拿它做定位计算
+- **用途：** 主要用于调试和可视化
 
-可以这样看：
+查看方式：
 
 ```bash
 rqt_image_view /yolo/image_annotated
 ```
 
-或者你们自己订阅后转 OpenCV 显示。
-
-这个话题更像“人眼确认检测有没有跑对”。
-
----
-
 ### 3.3 `/yolo/debug_fps`
-
 - **消息类型：** `std_msgs/msg/Float32`
 - **作用：** 当前推理帧率
-- **用途：** 仅调试性能
+- **用途：** 调试性能和实时性
 
-比如：
+查看方式：
 
 ```bash
 ros2 topic echo /yolo/debug_fps
 ```
 
-这个值对定位本身没直接帮助，但能看系统负载和实时性是否够用。
+### 3.4 `/yolo/target_points`
+- **消息类型：** `geometry_msgs/msg/PoseArray`
+- **作用：** `target_mapper_node` 输出的目标点数组
+- **默认坐标系：** `odom`
 
----
+查看方式：
 
-## 4. 当前坐标系语义
-
-这部分别偷懒，不然后面一堆人都会把“图像框”和“地图坐标”混成一锅粥。
-
-### 4.1 当前检测结果在哪个坐标系里？
-
-`/yolo/detections.header.frame_id` 当前默认写的是：
-
-```text
-camera_link
+```bash
+ros2 topic echo /yolo/target_points
 ```
 
-它表达的是：
+### 3.5 `/yolo/target_markers`
+- **消息类型：** `visualization_msgs/msg/MarkerArray`
+- **作用：** 给 RViz 显示目标球和文字标签
 
-- 这批检测结果来源于相机视角
-- 这不是 `map` 坐标系
-- 这也不是 `odom` 或 `base_link` 下的直接位置结果
+查看方式：
 
-严格说，当前 `Detection2DArray` 里的框坐标本质上是**像素平面坐标**，`frame_id` 只是告诉你“这些检测属于哪路相机/哪个传感器参考系”。
+```bash
+ros2 topic echo /yolo/target_markers
+```
 
-### 4.2 车端目前已有的位姿链
+### 3.6 `/uav/target_points_map`
+- **消息类型：** `geometry_msgs/msg/PoseArray`
+- **作用：** `uav_target_bridge_node` 输出的无人机目标点数组
+- **默认坐标系：** `map`
 
-车端当前已有：
+查看方式：
 
-- `/odom`：`nav_msgs/Odometry`
-- TF：`odom -> base_footprint`
-- URDF 固定 TF：`base_footprint -> base_link`
-- URDF 中还定义了：`laser_link`
-- **当前还没有在 URDF 里正式定义 `camera_link` 的安装位姿**
+```bash
+ros2 topic echo /uav/target_points_map --once
+```
 
-这个点很关键：
+### 3.7 `/uav/target_markers`
+- **消息类型：** `visualization_msgs/msg/MarkerArray`
+- **作用：** 给 RViz 显示无人机共享目标球和文字标签
 
-> 现在检测消息里虽然写了 `camera_link`，但如果 TF 树里没有真实、正确的 `camera_link -> base_link` 外参，那就没法严肃地把检测结果投到车体坐标系，更别说 `odom/map`。
+查看方式：
 
-所以后续若要定位，**第一优先级不是瞎算，而是把相机外参补齐。**
+```bash
+ros2 topic echo /uav/target_markers --once
+```
 
 ---
 
-## 5. 后续怎么确定“目标在地图中的位置”
+## 4. 当前输入方式与限制
 
-核心逻辑就一句话：
+### 4.1 当前输入方式
+`yolo_detector_node` 支持两种输入方式：
 
-> **2D 检测框 + 相机模型 + 深度/距离 + 载体位姿 + 坐标变换 = 地图中的目标位置**
+1. `image_topic` 为空时，直接打开本机 `/dev/videoX` 摄像头设备；
+2. `image_topic` 非空时，订阅 ROS 图像话题。
 
-当前 `car_yolo` 只提供了前面第一块：**2D 检测框**。
+与 Astra Pro RGB-D 链路同跑时，推荐使用：
 
-要落到地图上，至少还需要下面这些条件。
+```bash
+image_topic:=/camera/color/image_raw
+```
 
-### 5.1 必备条件一：相机内参
+这样 `v4l2_camera` 负责独占 `/dev/video21`，YOLO 只消费 ROS 图像，避免重复抢设备。
 
-需要知道相机标定参数：
+### 4.2 当前限制
+当前版本仍有这些限制：
 
+1. **目标落图 v1 仍是工程验证版，不是标定级定位**
+2. **没有稳定跨帧跟踪 ID**，`detection.id` 只是单帧编号
+3. **没有输出目标速度、朝向、空间尺寸估计**
+4. **Astra Pro 当前 RGB 与 depth 是拆分链路，未做严格 RGB-depth 配准**
+5. **depth 模式依赖 RGB-depth 对齐质量；不稳时先切 `projection_mode:=ground_plane`**
+6. **UAV 目标桥接依赖 `map -> uav_map` 对齐精度；当前默认值只是现场粗对齐**
+7. **导航到目标仍采用人工确认后调用 `/navigate_to_pose` action，不做自动决策**
+
+所以它现在的准确定位是：
+
+> **检测链、车端 RGB-D 落图 v1、UAV 目标桥接到车端 map 都已打通；下一步重点是校准 RGB-depth、相机外参和 `map -> uav_map`。**
+
+---
+
+## 5. 与整车导航 / 坐标系的衔接关系
+
+这部分是最容易被说糊的，我直接给你写明白。
+
+### 5.1 现在已经接上的部分
+当前整车侧已经有：
+- `/odometry/filtered`
+- `odom -> base_footprint`
+- `base_footprint -> base_link`
+- `laser_link`
+- Nav2 的 `map / odom / base_footprint` 定位导航链
+
+而 `car_yolo` 当前提供的是：
+- 检测时间戳
+- `camera_frame_id`
+- 图像里的 2D 框
+- 类别与置信度
+- RGB-D 落图结果 `/yolo/target_points`
+- UAV 共享目标桥接结果 `/uav/target_points_map`
+
+也就是说，视觉链已经能产出工程验证级目标点；但这些点的精度仍由相机标定、RGB-depth 对齐、TF 外参和 UAV 地图对齐共同决定。
+
+### 5.2 后续还要校准什么
+如果后续要把视觉检测结果稳定用于导航和任务决策，至少还需要继续校准下面这些条件：
+
+#### 1）相机外参
+需要在整车 TF 树中明确：
+- `base_link -> camera_link`
+- 必要时再补 `camera_optical_frame`
+
+当前 URDF 已有第一版相机挂点，但仍需要按实物继续校准。
+
+#### 2）相机内参
+需要知道：
 - 焦距 `fx, fy`
 - 主点 `cx, cy`
 - 畸变参数
 
-用途：
+当前已先接入出厂 RGB 内参配置；后续最好用实物标定结果替换或验证。
 
-- 把像素点 `(u, v)` 转成相机坐标系下的一条视线方向
-- 没有内参，就只能“看着像”，不能严肃反投影
+#### 3）距离来源
+只靠一个 2D 框，通常没法唯一确定目标 3D 位置。
 
-ROS 里通常来自：
+后续至少要有一种距离信息来源：
+- 深度相机 / RGB-D
+- 与激光雷达或点云做关联
+- 已知目标尺寸的单目估距
+- 默认目标位于地面平面的几何求交
 
-- `/camera_info`
-- 或标定文件
+#### 4）检测时刻的载体位姿
+还需要拿检测消息时间戳，到 TF/位姿缓存里取对应时刻的：
+- `odom -> base_link`
+- 或 `map -> base_link`
 
----
+别拿“当前时刻姿态”去对“几百毫秒前的检测框”，那种做法会把目标点甩得很离谱。
 
-### 5.2 必备条件二：相机外参
+#### 5）UAV 地图对齐
+空地协同时需要维护：
+- `map -> uav_map`
 
-需要知道相机相对于机体的安装位姿，例如：
+当前车端一键链路会发布这条静态 TF，默认粗对齐为：
+- `x=-0.78`
+- `y=-0.61`
+- `yaw=0.0`
 
-- `base_link -> camera_link`
-  或
-- `camera_link -> base_link`
-
-本质上要知道：
-
-- 相机装在车/无人机哪里
-- 朝哪个方向
-- 高度、偏移、俯仰角是多少
-
-没有外参，你就不知道检测到的目标相对载体在哪里。
-
----
-
-### 5.3 必备条件三：目标距离信息
-
-这是很多人最爱糊弄过去的一步。只靠一个 2D 框，通常**不能唯一确定目标 3D 位置**。
-
-你至少要有一种“距离”来源：
-
-#### 方案 A：深度相机 / RGB-D
-
-最直接。
-
-- 在检测框中心取深度值
-- 或在框内做深度中值滤波
-- 得到目标到相机的距离
-
-然后就能从像素点反投影到相机 3D 点。
-
-#### 方案 B：激光雷达配准
-
-如果目标能和点云/雷达观测关联：
-
-- 先根据检测框得到视线方向
-- 再和雷达点云、地面、障碍点进行关联
-- 选取对应 3D 点或目标簇中心
-
-这比拍脑袋靠谱得多。
-
-#### 方案 C：已知目标高度/尺寸做单目估距
-
-例如目标是标准尺寸的标志物、二维码板、已知直径圆环等。
-
-- 利用目标真实尺寸
-- 结合成像大小估算距离
-
-这个方案能用，但误差通常比前两种大，比赛里能不能扛住看场景。
-
-#### 方案 D：假设目标落在已知平面上
-
-如果明确目标在地面上，可以：
-
-- 用检测框底边中点作为“接地点”近似像素
-- 通过相机光线与地面平面求交
-- 得到目标在地面坐标系的位置
-
-这个方案在“地面目标定位”里很常见，尤其适合空地协同。
+后续如果起飞点、车端建图原点或朝向变化，要重新校准这组参数。
 
 ---
 
-### 5.4 必备条件四：载体当前位姿
+## 6. 推荐的后续落图流程
 
-你们还需要知道检测发生时载体在全局中的姿态和位置。
+如果后面要继续扩展，我建议按下面流程做，而不是拍脑袋硬算。
 
-比如：
-
-- 车端：`odom` / `map` 下位姿
-- 无人机端：飞控/SLAM 输出的机体位姿
-
-注意一定要和检测消息时间戳对齐：
-
-- 用检测消息 `header.stamp`
-- 去 TF 或位姿缓存里查对应时刻的变换
-
-别拿“当前时刻位姿”去配“几百毫秒之前的检测”，那种做法很快就会把目标点甩飞。
-
----
-
-## 6. 一条推荐的落图流程
-
-这里给你们一个最稳妥的思路，后面无论在车端还是无人机端都能复用。
-
-### 流程 1：先从检测框得到目标视线
-
+### 步骤 1：从检测框得到目标视线
 输入：
-
 - `/yolo/detections`
 - 相机内参
 
-对每个检测目标：
+处理：
+- 取检测框中心或底边中点像素
+- 反投影成相机坐标系下一条视线方向
 
-1. 取框中心 `(u, v)`
-2. 用内参把 `(u, v)` 反投影成相机坐标系下一条单位方向射线
-
-输出：
-
-- `camera_link` 下目标方向向量
-
-### 流程 2：补距离，得到相机系 3D 点
-
-根据你们手头传感器选择一种：
-
-- 深度相机：直接取深度
-- 雷达：做视线与点云关联
-- 地面假设：做视线与地面平面求交
-- 已知尺寸目标：单目估距
+### 步骤 2：补距离，得到相机系 3D 点
+可选方案：
+- 深度相机
+- 雷达/点云关联
+- 地面平面求交
+- 已知尺寸单目估距
 
 输出：
+- `camera_link` 下的目标三维点
 
-- `camera_link` 下目标点 `P_camera = [x, y, z]`
-
-### 流程 3：变换到机体系
-
-使用外参：
+### 步骤 3：变换到车体系
+利用相机外参：
 
 ```text
 P_base = T_base_camera * P_camera
 ```
 
-输出：
-
-- `base_link` 下目标位置
-
-### 流程 4：变换到全局地图系
-
-再结合检测时刻的机体位姿：
-
-```text
-P_map = T_map_base * P_base
-```
-
-如果车端当前只有 `odom`，那就是先到 `odom`：
+### 步骤 4：再变换到 `odom` 或 `map`
+利用检测时刻的车体位姿：
 
 ```text
 P_odom = T_odom_base * P_base
 ```
+或
+```text
+P_map = T_map_base * P_base
+```
 
-如果后面有建图/定位提供 `map -> odom`，再继续转到 `map`。
-
-### 流程 5：做多帧融合
-
-单帧结果通常不稳，建议至少做：
-
-- 同类目标的时间窗聚类
-- 连续多帧平均/滤波
+### 步骤 5：做多帧融合
+单帧检测不稳，后续建议至少做：
+- 时间窗聚类
+- 多帧平均/滤波
 - 置信度门限
 - 重复观测去重
 
-否则你们地图上会长出一片“目标星云”，很艺术，但没法比赛。
+不然地图上会长出一堆“目标星云”，看着热闹，实际没法用。
 
 ---
 
-## 7. 对无人机侧最实用的落地建议
+## 7. 当前最实用的工程建议
 
-如果你们要尽快把链路跑通，我建议按下面优先级来，别一上来就想做宇宙最强融合。
+如果后续要尽快让视觉链和导航链接起来，我建议优先做这几步：
 
-### 方案一：先把“检测 + 时间戳 + 位姿”打通
+### 7.1 继续校准 `car_description` 里的相机挂点
+`camera_link` 和 color/depth optical frame 已经写进 URDF / TF，后续重点是按实物修正安装偏移和角度。
 
-先不急着高精定位，先验证：
+### 7.2 再补相机标定信息
+至少把：
+- 相机内参
+- 畸变参数
+- 相机外参
 
-- 能稳定收到 `/yolo/detections`
-- 能按 `header.stamp` 对齐位姿
-- 能知道每个目标是什么类别、出现在图像哪个位置
+沉淀成固定配置，而不是临时靠人记。
 
-这一步完成后，至少可以做：
+### 7.3 第一阶段优先做“地面目标落点”
+如果比赛目标默认在地面上，优先考虑：
+- 用检测框底边中点作为近似接地点
+- 视线与地面平面求交
+- 转到 `odom/map`
 
-- 检测事件记录
-- 按类别筛选目标
-- 根据图像中心偏差做“朝向目标飞/转”的引导
+这条路比一上来做复杂三维融合更省时间，也更适合先把链路跑通。
 
-### 方案二：如果目标默认在地面上，优先做“地面交点法”
+### 7.4 UAV 目标优先走人工确认
+当前推荐流程是：
 
-对比赛场景来说，这通常是最省事的路径。
+```bash
+ros2 topic echo /uav/target_points_map --once
+```
 
-前提：
+确认目标点后，通过 Nav2 action 导航：
 
-- 相机外参清楚
-- 无人机高度已知
-- 目标确实在地面附近
+```bash
+ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{
+  pose: {
+    header: {frame_id: map},
+    pose: {
+      position: {x: 目标x, y: 目标y, z: 0.0},
+      orientation: {z: 0.0, w: 1.0}
+    }
+  }
+}" --feedback
+```
 
-做法：
-
-- 取检测框底边中点，而不是框中心
-- 由该像素生成视线
-- 与地面平面 `z=0`（或局部地面模型）求交
-- 直接得到目标地面坐标
-
-这比拿框中心瞎估距离靠谱得多。
-
-### 方案三：如果有深度或点云，直接走 3D 关联
-
-如果无人机侧已经有：
-
-- 深度相机
-- 双目
-- 激光雷达
-- 稠密/稀疏点云地图
-
-那就别委屈自己做纯单目玄学估距。
-
-直接把检测框与深度/点云关联，误差和可解释性都会好很多。
+虚拟机桌面也有 `UAV Target Go/No-Go` 入口，可以查看当前 UAV 目标并手动选择是否导航。
 
 ---
 
-## 8. 当前版本的限制
+## 8. 相关包协作关系
 
-这部分我直接写明白，免得后面有人误会系统已经“自动定位目标”了。
+当前和 `car_yolo` 最直接相关的包有：
 
-当前 `car_yolo` 的限制：
+- `car_description`
+  - 负责整车 TF、后续相机挂点、车体坐标框架
+- `car_driver`
+  - 提供 `/wheel/odom`、`/odometry/filtered`、`odom -> base_footprint` 等底层位姿链
+- `rplidar_ros`
+  - 可作为后续视觉-激光关联的距离来源之一
+- `nav2`
+  - 提供 `map / odom / base` 导航定位主链
 
-1. **只输出 2D 检测，不输出目标 3D 坐标**
-2. **当前没有稳定跨帧跟踪 ID**，`detection.id` 只是单帧序号
-3. **当前没有输出目标速度、朝向、尺寸估计**
-4. **当前节点直接开本机 `/dev/videoX`**，还不是订阅 ROS 图像流
-5. **当前 `camera_link` 只是消息里写的 frame_id，TF 外参链还需要补完整**
-6. **没有与地图/SLAM/点云做融合**
-7. **类别集合当前沿用 COCO 80 类**，如果比赛目标不是 COCO 类，后面需要换模型或重训
-
----
-
-## 9. 建议的后续接口升级方向
-
-如果你们后面要把它从“能看见”升级到“能定位、能决策”，建议按这个顺序补：
-
-### 第一阶段：把相机 TF 补齐
-
-至少把这些关系明确下来：
-
-- `base_link -> camera_link`
-- 如果有云台，还要把云台坐标链也补上
-
-### 第二阶段：补相机标定信息
-
-让图像和 `CameraInfo` 配套发布。
-
-### 第三阶段：补距离来源
-
-三选一或多种并用：
-
-- 深度
-- 点云
-- 地面模型 / 单目几何约束
-
-### 第四阶段：输出更直接的定位结果
-
-后续可以新增一个自定义话题，比如：
-
-- `/yolo/target_points`
-- 消息里直接给出 `map` / `odom` / `base_link` 下的目标坐标
-
-这样上层导航或任务规划节点就不用再重复做一遍投影和坐标变换。
-
----
-
-## 10. 一句话总结给队友
-
-如果你要直接转发给无人机队友，可以用这段：
-
-> `car_yolo` 现在已经能稳定发布标准 ROS2 检测结果 `/yolo/detections`，消息类型是 `vision_msgs/Detection2DArray`。每个检测里包含时间戳、所属相机 frame、目标类别、置信度、以及图像中的 2D 框中心和宽高。当前它解决的是“目标在图像哪里”，还没有直接给“目标在地图哪里”；后续需要结合相机内外参、深度/雷达/地面约束，以及检测时刻载体位姿，才能把目标反投影到 `odom/map` 中。
-
----
-
-## 11. 我这边建议你们对接时先盯的关键点
-
-别上来就被花活带偏，先盯这几个：
-
-- `header.stamp`：时间同步是不是对的
-- `header.frame_id`：到底是哪路相机
-- `bbox.center + bbox.size`：框位置是不是稳定
-- `class_id + score`：类别和置信度是不是可信
-- 相机外参有没有
-- 有没有可靠距离来源
-- 最终落图时是不是按**检测时刻**查 TF
-
-这几件事做对了，后面的定位才不是玄学。
+所以 `car_yolo` 当前不是孤立包，它已经处在整车系统里，只是**它和地图坐标之间那一段融合逻辑还没补完**。
+`uav_target_bridge_node` 则把无人机侧共享目标接进车端 `map`，目前已经能用于 RViz 显示和人工确认导航。

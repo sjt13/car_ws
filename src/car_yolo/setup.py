@@ -20,7 +20,12 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/launch', ['launch/yolo_detector.launch.py']),
+        ('share/' + package_name + '/launch', [
+            'launch/yolo_detector.launch.py',
+            'launch/target_mapper.launch.py',
+            'launch/uav_target_bridge.launch.py',
+            'launch/openclaw_target_decision.launch.py',
+        ]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -36,6 +41,9 @@ setup(
     entry_points={
         'console_scripts': [
             'yolo_detector_node = car_yolo.yolo_detector_node:main',
+            'target_mapper_node = car_yolo.target_mapper_node:main',
+            'uav_target_bridge_node = car_yolo.uav_target_bridge_node:main',
+            'openclaw_target_decision_node = car_yolo.openclaw_target_decision_node:main',
         ],
     },
 )

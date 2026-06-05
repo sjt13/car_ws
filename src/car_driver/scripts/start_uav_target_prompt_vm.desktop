@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=UAV Target Go/No-Go
+Comment=Review UAV target point and optionally send Nav2 goal
+Terminal=true
+Exec=bash -lc '/home/ros2/桌面/start_uav_target_prompt.sh; echo; read -p "Press Enter to close..."'
+Icon=go-jump
+Categories=Development;Robotics;

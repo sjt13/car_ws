@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float32
@@ -37,34 +38,20 @@ OBJ_THRESH = 0.25
 NMS_THRESH = 0.45
 IMG_SIZE = (640, 640)
 
-CLASSES = (
-    'person', 'bicycle', 'car', 'motorbike', 'aeroplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
-    'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
-    'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
-    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard',
-    'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
-    'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'sofa',
-    'pottedplant', 'bed', 'diningtable', 'toilet', 'tvmonitor', 'laptop', 'mouse', 'remote', 'keyboard',
-    'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors',
-    'teddy bear', 'hair drier', 'toothbrush'
-)
+CLASSES = ('red_ball', 'red_cube')
 
 
-def filter_boxes(boxes, box_confidences, box_class_probs):
+def filter_boxes(boxes, cls_sum, box_class_probs, obj_thresh=OBJ_THRESH):
     """先做第一轮置信度过滤。
 
-    这里把：
-    - 目标框置信度
-    - 类别最大分数
-
-    两者相乘后与 `OBJ_THRESH` 比较，低于阈值的候选框直接丢掉，
-    这样可以减少后续 NMS 的计算量。
+    当前 YOLO11 RKNN 导出的第三路输出是 class sum，用来辅助后处理，
+    不是传统 objectness；实际置信度直接使用类别最大分数。
     """
-    box_confidences = box_confidences.reshape(-1)
+    _ = cls_sum
     class_max_score = np.max(box_class_probs, axis=-1)
     classes = np.argmax(box_class_probs, axis=-1)
-    class_pos = np.where(class_max_score * box_confidences >= OBJ_THRESH)
-    scores = (class_max_score * box_confidences)[class_pos]
+    class_pos = np.where(class_max_score >= obj_thresh)
+    scores = class_max_score[class_pos]
     boxes = boxes[class_pos]
     classes = classes[class_pos]
     return boxes, classes, scores
@@ -129,7 +116,7 @@ def box_process(position):
     return xyxy
 
 
-def post_process(input_data):
+def post_process(input_data, obj_thresh=OBJ_THRESH):
     """对 RKNN 原始输出做完整后处理。
 
     流程：
@@ -139,13 +126,13 @@ def post_process(input_data):
     4. 先阈值过滤，再按类别做 NMS；
     5. 返回最终框、类别和分数。
     """
-    boxes, scores, classes_conf = [], [], []
+    boxes, cls_sums, classes_conf = [], [], []
     default_branch = 3
     pair_per_branch = len(input_data) // default_branch
     for i in range(default_branch):
         boxes.append(box_process(input_data[pair_per_branch * i]))
         classes_conf.append(input_data[pair_per_branch * i + 1])
-        scores.append(input_data[pair_per_branch * i + 2])
+        cls_sums.append(input_data[pair_per_branch * i + 2])
 
     def sp_flatten(_in):
         ch = _in.shape[1]
@@ -154,13 +141,13 @@ def post_process(input_data):
 
     boxes = [sp_flatten(_v) for _v in boxes]
     classes_conf = [sp_flatten(_v) for _v in classes_conf]
-    scores = [sp_flatten(_v) for _v in scores]
+    cls_sums = [sp_flatten(_v) for _v in cls_sums]
 
     boxes = np.concatenate(boxes)
     classes_conf = np.concatenate(classes_conf)
-    scores = np.concatenate(scores)
+    cls_sums = np.concatenate(cls_sums)
 
-    boxes, classes, scores = filter_boxes(boxes, scores, classes_conf)
+    boxes, classes, scores = filter_boxes(boxes, cls_sums, classes_conf, obj_thresh)
     if boxes is None or len(boxes) == 0:
         return None, None, None
 
@@ -214,18 +201,33 @@ class YoloDetectorNode(Node):
         self.declare_parameter('target', 'rk3588')
         self.declare_parameter('device_id', '')
         self.declare_parameter('camera_device', '/dev/video21')
-        self.declare_parameter('camera_frame_id', 'camera_link')
+        self.declare_parameter('camera_width', 1280)
+        self.declare_parameter('camera_height', 720)
+        self.declare_parameter('camera_fps', 30.0)
+        self.declare_parameter('camera_fourcc', 'MJPG')
+        self.declare_parameter('image_topic', '')
+        self.declare_parameter('camera_frame_id', 'camera_color_optical_frame')
         self.declare_parameter('detections_topic', '/yolo/detections')
         self.declare_parameter('annotated_image_topic', '/yolo/image_annotated')
         self.declare_parameter('publish_fps_topic', '/yolo/debug_fps')
         self.declare_parameter('timer_hz', 15.0)
+        self.declare_parameter('obj_thresh', OBJ_THRESH)
+        self.declare_parameter('debug_log', False)
 
         self.model_path = self.get_parameter('model_path').value
         self.target = self.get_parameter('target').value
         self.device_id = self.get_parameter('device_id').value or None
         self.camera_device = self.get_parameter('camera_device').value
+        self.camera_width = int(self.get_parameter('camera_width').value)
+        self.camera_height = int(self.get_parameter('camera_height').value)
+        self.camera_fps = float(self.get_parameter('camera_fps').value)
+        self.camera_fourcc = str(self.get_parameter('camera_fourcc').value or '')
+        self.image_topic = self.get_parameter('image_topic').value
         self.camera_frame_id = self.get_parameter('camera_frame_id').value
         self.timer_hz = float(self.get_parameter('timer_hz').value)
+        self.obj_thresh = float(self.get_parameter('obj_thresh').value)
+        self.debug_log = self._as_bool(self.get_parameter('debug_log').value)
+        self.frame_count = 0
 
         # 初始化图像桥、letterbox 辅助器和 RKNN 推理容器。
         self.bridge = CvBridge()
@@ -242,14 +244,31 @@ class YoloDetectorNode(Node):
             Float32, self.get_parameter('publish_fps_topic').value, 10
         )
 
-        # 打开摄像头，并建立固定频率的检测循环。
-        self.cap = self._open_capture(self.camera_device)
+        # 图像输入支持两种模式：
+        # 1. 默认直接打开 /dev/videoX，适合单独验证 YOLO；
+        # 2. 指定 image_topic 订阅 ROS 图像，适合和 v4l2_camera/depth 同时使用，避免重复抢 /dev/video21。
+        self.cap = None
+        self.latest_frame = None
+        self.latest_stamp = None
+        if self.image_topic:
+            self.image_sub = self.create_subscription(Image, self.image_topic, self.image_callback, 10)
+            input_desc = f'image_topic={self.image_topic}'
+        else:
+            self.cap = self._open_capture(
+                self.camera_device,
+                self.camera_width,
+                self.camera_height,
+                self.camera_fps,
+                self.camera_fourcc,
+            )
+            input_desc = f'camera={self.camera_device}'
+
         self.timer = self.create_timer(1.0 / max(self.timer_hz, 1.0), self.timer_callback)
         self.get_logger().info(
-            f'yolo_detector_node 已启动: model={self.model_path}, camera={self.camera_device}, target={self.target}'
+            f'yolo_detector_node 已启动: model={self.model_path}, {input_desc}, target={self.target}, obj_thresh={self.obj_thresh:.2f}'
         )
 
-    def _open_capture(self, camera_device: str):
+    def _open_capture(self, camera_device: str, width: int, height: int, fps: float, fourcc: str):
         """按设备名或索引打开摄像头。"""
         if camera_device.startswith('/dev/video'):
             cap = cv2.VideoCapture(camera_device, cv2.CAP_V4L2)
@@ -260,6 +279,26 @@ class YoloDetectorNode(Node):
                 cap = cv2.VideoCapture(camera_device)
         if not cap.isOpened():
             raise RuntimeError(f'无法打开摄像头: {camera_device}')
+        fourcc = fourcc.strip().upper()
+        if fourcc:
+            if len(fourcc) == 4:
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
+            else:
+                self.get_logger().warning(f'忽略无效 camera_fourcc={fourcc!r}，需要 4 个字符')
+        if width > 0:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        if height > 0:
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if fps > 0:
+            cap.set(cv2.CAP_PROP_FPS, fps)
+
+        actual_fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+        actual_fourcc_text = ''.join(chr((actual_fourcc >> (8 * i)) & 0xFF) for i in range(4))
+        self.get_logger().info(
+            f'camera opened: {camera_device}, '
+            f'{int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}, '
+            f'fps={cap.get(cv2.CAP_PROP_FPS):.1f}, fourcc={actual_fourcc_text}'
+        )
         return cap
 
     def _build_detection_array(self, stamp, boxes, classes, scores):
@@ -291,20 +330,40 @@ class YoloDetectorNode(Node):
 
         return msg
 
+    def image_callback(self, msg: Image):
+        """接收 ROS 图像输入，避免和 v4l2_camera 重复抢占同一个 /dev/videoX。"""
+        try:
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as exc:  # cv_bridge 在不同发行版异常类型不完全一致
+            self.get_logger().warning(f'ROS 图像转换失败: {exc}')
+            return
+        self.latest_frame = frame
+        self.latest_stamp = msg.header.stamp
+
     def timer_callback(self):
         """固定周期执行一次：读帧、推理、后处理、发布结果。"""
         begin = time.time()
-        ret, frame = self.cap.read()
-        if not ret:
-            self.get_logger().warning('摄像头读帧失败，跳过本轮')
-            return
+        if self.image_topic:
+            if self.latest_frame is None:
+                self.get_logger().debug('还没有收到 ROS 图像，跳过本轮')
+                return
+            frame = self.latest_frame.copy()
+            stamp = self.latest_stamp or self.get_clock().now().to_msg()
+        else:
+            ret, frame = self.cap.read()
+            if not ret:
+                self.get_logger().warning('摄像头读帧失败，跳过本轮')
+                return
+            stamp = self.get_clock().now().to_msg()
 
-        stamp = self.get_clock().now().to_msg()
         # 先做 letterbox，再转成 RGB，保持输入尺寸和训练/导出期一致。
-        img = self.co_helper.letter_box(im=frame.copy(), new_shape=(IMG_SIZE[1], IMG_SIZE[0]), pad_color=(0, 0, 0))
+        img = self.co_helper.letter_box(im=frame.copy(), new_shape=(IMG_SIZE[1], IMG_SIZE[0]), pad_color=(114, 114, 114))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         outputs = self.model.run([img])
-        boxes, classes, scores = post_process(outputs)
+        boxes, classes, scores = post_process(outputs, self.obj_thresh)
+        self.frame_count += 1
+        if self.debug_log and (self.frame_count == 1 or self.frame_count % 30 == 0):
+            self._log_inference_debug(outputs, boxes, scores)
 
         annotated = frame.copy()
         real_boxes = None
@@ -333,6 +392,35 @@ class YoloDetectorNode(Node):
         fps_msg.data = float(fps)
         self.fps_pub.publish(fps_msg)
 
+    def _log_inference_debug(self, outputs, boxes, scores):
+        """Print compact RKNN output stats for deployment debugging."""
+        parts = []
+        for index, output in enumerate(outputs):
+            arr = np.asarray(output)
+            parts.append(
+                f'o{index}:shape={tuple(arr.shape)},min={float(np.min(arr)):.4f},max={float(np.max(arr)):.4f}'
+            )
+        class_max_parts = []
+        if len(outputs) == 9:
+            for branch in range(3):
+                cls = np.asarray(outputs[branch * 3 + 1])
+                class_max_parts.append(f'b{branch}_cls_max={float(np.max(cls)):.4f}')
+        box_count = 0 if boxes is None else len(boxes)
+        max_score = 0.0 if scores is None or len(scores) == 0 else float(np.max(scores))
+        self.get_logger().info(
+            'inference_debug: '
+            + ', '.join(parts)
+            + f'; post_boxes={box_count}, post_max_score={max_score:.4f}'
+            + ('; ' + ', '.join(class_max_parts) if class_max_parts else '')
+        )
+
+    @staticmethod
+    def _as_bool(value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ('1', 'true', 'yes', 'on')
+        return bool(value)
     def destroy_node(self):
         """节点退出时释放摄像头和 RKNN 模型句柄。"""
         try:
@@ -351,11 +439,13 @@ def main(args=None):
     try:
         node = YoloDetectorNode()
         rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
     finally:
         if node is not None:
             node.destroy_node()
-        rclpy.shutdown()
-
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Car RViz
+Comment=Start RViz for the car ROS graph
+Terminal=true
+Exec=bash -lc '/home/ros2/桌面/start_car_rviz.sh; echo; read -p "Press Enter to close..."'
+Icon=rviz2
+Categories=Development;Robotics;

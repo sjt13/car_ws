@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kill ROS Launches
+Comment=Stop ROS2 launches and common ROS2 nodes
+Terminal=true
+Exec=bash -lc '/home/elf/桌面/kill_ros_launches.sh; echo; read -p "Press Enter to close..."'
+Icon=process-stop
+Categories=Development;Robotics;

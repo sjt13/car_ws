@@ -56,7 +56,7 @@
        目前实物前后反装，先用 yaw=pi 修正朝向。 -->
   <xacro:property name="laser_x" value="0.000"/>
   <xacro:property name="laser_y" value="0.000"/>
-  <xacro:property name="laser_z" value="0.120"/>
+  <xacro:property name="laser_z" value="0.080"/>
   <xacro:property name="laser_radius" value="0.035"/>
   <xacro:property name="laser_height" value="0.040"/>
   <xacro:property name="laser_pole_radius" value="0.008"/>
@@ -80,6 +80,19 @@
   </material>
   <material name="mat_support">
     <color rgba="0.80 0.78 0.68 1.0"/>
+  </material>
+  <!-- 相机参数：Astra Pro 当前装在车头，后侧紧贴车体前缘，顶部与上车板上表面齐平。
+       这里先按外壳近似尺寸建模，重点是把 camera_link / optical frame 挂进 TF。 -->
+  <xacro:property name="camera_x_size" value="0.030"/>
+  <xacro:property name="camera_y_size" value="0.165"/>
+  <xacro:property name="camera_z_size" value="0.040"/>
+  <xacro:property name="camera_x" value="${body_length / 2.0 + camera_x_size / 2.0}"/>
+  <xacro:property name="camera_y" value="0.0"/>
+  <xacro:property name="camera_z" value="${body_height / 2.0 - camera_z_size / 2.0}"/>
+  <xacro:property name="camera_optical_x" value="${camera_x_size / 2.0}"/>
+
+  <material name="mat_camera">
+    <color rgba="0.05 0.05 0.06 1.0"/>
   </material>
 
   <link name="base_footprint"/>
@@ -280,5 +293,56 @@
     <parent link="base_link"/>
     <child link="laser_link"/>
     <origin xyz="${laser_x} ${laser_y} ${laser_z}" rpy="0 0 3.14159265359"/>
+  </joint>
+
+  <link name="camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${camera_x_size} ${camera_y_size} ${camera_z_size}"/>
+      </geometry>
+      <material name="mat_camera"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${camera_x_size} ${camera_y_size} ${camera_z_size}"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="${camera_x} ${camera_y} ${camera_z}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Orbbec 常用帧：深度和彩色帧从 camera_link 展开，optical frame 遵循 REP-103：z 向前，x 向右，y 向下。 -->
+  <link name="camera_depth_frame"/>
+  <joint name="camera_depth_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_depth_frame"/>
+    <origin xyz="${camera_optical_x} 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="camera_depth_optical_frame"/>
+  <joint name="camera_depth_optical_joint" type="fixed">
+    <parent link="camera_depth_frame"/>
+    <child link="camera_depth_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.57079632679 0 -1.57079632679"/>
+  </joint>
+
+  <link name="camera_color_frame"/>
+  <joint name="camera_color_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_color_frame"/>
+    <origin xyz="${camera_optical_x} 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="camera_color_optical_frame"/>
+  <joint name="camera_color_optical_joint" type="fixed">
+    <parent link="camera_color_frame"/>
+    <child link="camera_color_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.57079632679 0 -1.57079632679"/>
   </joint>
 </robot>

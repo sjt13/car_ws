@@ -1,0 +1,19 @@
+orbbec_bringup:
+  ros__parameters:
+    product_id: "0x0403"
+    enable_color: false
+    enable_depth: true
+    depth_width: 320
+    depth_height: 240
+    depth_fps: 30
+    depth_format: "Y12"
+    enable_ir: false
+    enable_point_cloud: false
+
+color_camera:
+  ros__parameters:
+    video_device: "/dev/video21"
+    image_size: [640, 480]
+    time_per_frame: [1, 30]
+    pixel_format: "YUYV"
+    camera_frame_id: "camera_color_optical_frame"

@@ -5,9 +5,9 @@
 //
 // 作用概括：
 // 1. 订阅 ROS2 `/cmd_vel`；
-// 2. 通过串口把速度指令编码为 STM32 协议帧并下发；
-// 3. 接收 STM32 上行 `$TEL` 遥测；
-// 4. 发布 IMU、轮速、里程计和 `odom -> base_footprint` TF。
+// 2. 通过串口把速度指令编码为 STM32 已有串口协议帧并下发；
+// 3. 接收 STM32 上行 `$TEL` / `$DBG` 遥测；
+// 4. 发布 IMU、轮速、里程计、调试帧和 `odom -> base_footprint` TF。
 //
 // 如果把 `base_driver_node.cpp` 看作“怎么做”，这个头文件就是“有哪些能力和状态”。
 
@@ -52,6 +52,23 @@ private:
     int32_t wd {0};
   };
 
+  // 低频调试遥测：目标速度、实际轮速、PWM 和控制周期。
+  struct DebugTelemetry
+  {
+    int32_t tgx {0};
+    int32_t tgy {0};
+    int32_t tgw {0};
+    int32_t rta {0};
+    int32_t rtb {0};
+    int32_t rtc {0};
+    int32_t rtd {0};
+    int32_t pwma {0};
+    int32_t pwmb {0};
+    int32_t pwmc {0};
+    int32_t pwmd {0};
+    int32_t dt {0};
+  };
+
   // IMU 相关遥测：加速度/角速度（均为 STM32 上行整型原始值）。
   struct ImuTelemetry
   {
@@ -90,9 +107,12 @@ private:
   void processRxBuffer();
   void processReceivedFrame(const std::string & frame);
   bool parseTelTelemetryFrame(const std::string & frame, TelTelemetryFrame & out) const;
+  bool parseDbgTelemetryFrame(const std::string & frame, DebugTelemetry & out) const;
   bool parseTelIntegerFields(const std::string & payload, std::array<int32_t, 13> & values) const;
+  bool parseDbgIntegerFields(const std::string & payload, std::array<int32_t, 12> & values) const;
   void publishImuRaw(const ImuTelemetry & imu, const rclcpp::Time & stamp);
   void publishWheelTicks(const EncoderTelemetry & enc);
+  void publishDebugTelemetry(const DebugTelemetry & dbg);
   void updateOdom(
     const EncoderTelemetry & enc, const ImuTelemetry & imu, const rclcpp::Time & stamp);
   geometry_msgs::msg::Quaternion yawToQuaternion(double yaw) const;
@@ -101,6 +121,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_raw_pub_;
   rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr wheel_ticks_pub_;
+  rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr stm32_debug_pub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::TimerBase::SharedPtr timer_;
@@ -116,7 +137,7 @@ private:
   double tf_publish_rate_hz_ {20.0};
   double odom_linear_deadband_mps_ {0.05};
   double odom_angular_deadband_radps_ {0.10};
-  double odom_yaw_scale_ {0.91};
+  double odom_yaw_scale_ {0.53};
   double max_vx_mps_ {1.5};
   double max_vy_mps_ {1.2};
   double max_wz_radps_ {6.28};
