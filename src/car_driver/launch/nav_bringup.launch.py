@@ -30,6 +30,10 @@ def generate_launch_description():
     odom_frame_id = LaunchConfiguration('odom_frame_id')
     base_frame_id = LaunchConfiguration('base_frame_id')
     odom_yaw_scale = LaunchConfiguration('odom_yaw_scale')
+    publish_odom_tf = LaunchConfiguration('publish_odom_tf')
+    use_ekf_odom = LaunchConfiguration('use_ekf_odom')
+    ekf_params_file = LaunchConfiguration('ekf_params_file')
+    ekf_output_odom_topic = LaunchConfiguration('ekf_output_odom_topic')
 
     lidar_port = LaunchConfiguration('lidar_port')
     lidar_baudrate = LaunchConfiguration('lidar_baudrate')
@@ -56,6 +60,12 @@ def generate_launch_description():
     navigation_launch = PathJoinSubstitution(
         [FindPackageShare('nav2_bringup'), 'launch', 'navigation_launch.py']
     )
+    ekf_launch = PathJoinSubstitution(
+        [FindPackageShare('car_driver'), 'launch', 'ekf_odom_imu.launch.py']
+    )
+    default_ekf_params = PathJoinSubstitution(
+        [FindPackageShare('car_driver'), 'config', 'ekf_odom_imu.yaml']
+    )
 
     robot_description = {
         'robot_description': Command(['xacro ', xacro_file])
@@ -80,6 +90,10 @@ def generate_launch_description():
         DeclareLaunchArgument('odom_frame_id', default_value='odom'),
         DeclareLaunchArgument('base_frame_id', default_value='base_footprint'),
         DeclareLaunchArgument('odom_yaw_scale', default_value='0.91'),
+        DeclareLaunchArgument('publish_odom_tf', default_value='true'),
+        DeclareLaunchArgument('use_ekf_odom', default_value='false'),
+        DeclareLaunchArgument('ekf_params_file', default_value=default_ekf_params),
+        DeclareLaunchArgument('ekf_output_odom_topic', default_value='/odometry/filtered'),
         DeclareLaunchArgument('lidar_port', default_value='/dev/ttyUSB0'),
         DeclareLaunchArgument('lidar_baudrate', default_value='460800'),
         DeclareLaunchArgument('lidar_frame_id', default_value='laser_link'),
@@ -108,6 +122,7 @@ def generate_launch_description():
                 'odom_frame_id': odom_frame_id,
                 'base_frame_id': base_frame_id,
                 'odom_yaw_scale': odom_yaw_scale,
+                'publish_odom_tf': publish_odom_tf,
             }],
         ),
         Node(
@@ -146,6 +161,16 @@ def generate_launch_description():
                 'use_composition': 'False',
                 'use_respawn': use_respawn,
                 'log_level': log_level,
+            }.items(),
+        ),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(ekf_launch),
+            condition=IfCondition(use_ekf_odom),
+            launch_arguments={
+                'params_file': ekf_params_file,
+                'output_odom_topic': ekf_output_odom_topic,
+                'use_sim_time': 'false',
+                'publish_tf': 'true',
             }.items(),
         ),
         Node(

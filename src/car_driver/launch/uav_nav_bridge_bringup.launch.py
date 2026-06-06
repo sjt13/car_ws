@@ -12,6 +12,8 @@ def generate_launch_description():
     map_yaml = LaunchConfiguration('map')
     params_file = LaunchConfiguration('params_file')
     use_rviz = LaunchConfiguration('use_rviz')
+    use_ekf_odom = LaunchConfiguration('use_ekf_odom')
+    publish_odom_tf = LaunchConfiguration('publish_odom_tf')
 
     uav_map_x = LaunchConfiguration('uav_map_x')
     uav_map_y = LaunchConfiguration('uav_map_y')
@@ -28,9 +30,11 @@ def generate_launch_description():
         DeclareLaunchArgument('map', default_value='/home/elf/car/car_ws/maps/214map.yaml'),
         DeclareLaunchArgument(
             'params_file',
-            default_value='/home/elf/car/car_ws/src/car_description/rviz/nav2_params.yaml',
+            default_value='/home/elf/car/car_ws/src/car_description/rviz/nav2_params_natural.yaml',
         ),
         DeclareLaunchArgument('use_rviz', default_value='false'),
+        DeclareLaunchArgument('use_ekf_odom', default_value='true'),
+        DeclareLaunchArgument('publish_odom_tf', default_value='false'),
         DeclareLaunchArgument('uav_map_x', default_value='-0.78'),
         DeclareLaunchArgument('uav_map_y', default_value='-0.61'),
         DeclareLaunchArgument('uav_map_z', default_value='0.0'),
@@ -47,6 +51,8 @@ def generate_launch_description():
                 'map': map_yaml,
                 'params_file': params_file,
                 'use_rviz': use_rviz,
+                'publish_odom_tf': publish_odom_tf,
+                'use_ekf_odom': use_ekf_odom,
             }.items(),
         ),
         Node(
