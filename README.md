@@ -442,3 +442,22 @@ ros2 launch car_driver uav_nav_bridge_bringup.launch.py
   - 车端 RGB-D 目标落图与 UAV 目标桥接记录
 
 如果你要快速上手，不想在一堆 launch 和参数里乱翻，先看这三份，能省不少时间。
+
+---
+
+## 12. EKF TF 在线建图入口
+
+当需要验证 MPU6050 辅助 yaw / wz 后的建图效果时，使用：
+
+```bash
+cd /home/elf/car/car_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 launch car_driver mapping_ekf_tf.launch.py
+```
+
+该入口保持 `/odom` 由 `base_driver_node` 发布，但关闭底盘的 `odom -> base_footprint` TF，由 `robot_localization/ekf_node` 发布该 TF；`slam_toolbox` 负责发布 `map -> odom`。不要和 AMCL / Nav2 同时作为 `map -> odom` 发布者运行。
+
+详细参数和录包建议见：
+
+- `src/car_driver/README.md`

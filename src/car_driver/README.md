@@ -481,3 +481,65 @@ ELF2 桌面保留了两个常用入口：
 
 - `UAV Car Bringup`：启动 Nav2 + `map -> uav_map` TF + UAV target bridge；
 - `Kill ROS Launches`：清理当前用户下的 ROS2 launch 和常见节点进程。
+
+---
+
+## 7. `mapping_ekf_tf.launch.py`
+
+### 功能
+用于在线建图时启用 MPU6050 辅助的 EKF odom TF 链路：
+
+- `base_driver_node` 继续发布 `/odom`、`/imu/data_raw`、`/wheel_ticks`、`/stm32_debug`
+- `base_driver_node` 不发布 `odom -> base_footprint`
+- `robot_localization/ekf_node` 发布 `/odometry/filtered`，并接管 `odom -> base_footprint`
+- `slam_toolbox` 发布 `map -> odom`
+- 不启动 AMCL / Nav2，避免多个节点同时发布 `map -> odom`
+
+这个 launch 是在保留原始 wheel odom 链路的基础上做 EKF TF 建图验证；如果需要回退，继续使用 `full_bringup.launch.py` 默认参数即可。
+
+### 启动命令
+
+```bash
+cd /home/elf/car/car_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 launch car_driver mapping_ekf_tf.launch.py
+```
+
+默认会使用 `joy/game_controller_node` 读取 ELF2 上的 Twin USB 手柄接收器，不依赖 `/dev/input/js0`。
+
+### 常用参数
+
+- `base_port`，默认 `/dev/ttyS9`
+- `lidar_port`，默认 `/dev/ttyUSB0`
+- `odom_yaw_scale`，默认 `0.91`
+- `ekf_params_file`，默认 `car_driver/config/ekf_odom_imu.yaml`
+- `output_odom_topic`，默认 `/odometry/filtered`
+- `use_game_controller`，默认 `true`
+- `use_joy_to_cmdvel`，默认 `true`
+- `linear_scale`，默认 `0.25`
+- `lateral_scale`，默认 `0.20`
+- `angular_scale`，默认 `0.65`
+- `use_rviz`，默认 `false`
+
+### TF 所有权
+
+EKF TF 建图模式下只能有一个 `odom -> base_footprint` 发布者：
+
+```text
+map -> odom              slam_toolbox
+odom -> base_footprint   ekf_node
+base_footprint -> ...    robot_state_publisher
+```
+
+不要同时手动启动 `full_bringup.launch.py publish_odom_tf:=true` 和 `ekf_odom_imu.launch.py publish_tf:=true`，否则会造成 TF 冲突。
+
+### 录包建议
+
+```bash
+ros2 bag record -o slam_ekf_tf_debug \
+  /cmd_vel /joy /odom /odometry/filtered /imu/data_raw \
+  /scan /map /tf /tf_static /wheel_ticks /stm32_debug
+```
+
+验证时建议先做 2 到 4 分钟小闭环：慢速直行、几次慢速转弯、回到起点附近；不要后退，不要快速原地猛转。

@@ -110,6 +110,7 @@ private:
   bool parseDbgTelemetryFrame(const std::string & frame, DebugTelemetry & out) const;
   bool parseTelIntegerFields(const std::string & payload, std::array<int32_t, 13> & values) const;
   bool parseDbgIntegerFields(const std::string & payload, std::array<int32_t, 12> & values) const;
+  void updateImuGyroAutoBias(const ImuTelemetry & imu, const EncoderTelemetry & enc);
   void publishImuRaw(const ImuTelemetry & imu, const rclcpp::Time & stamp);
   void publishWheelTicks(const EncoderTelemetry & enc);
   void publishDebugTelemetry(const DebugTelemetry & dbg);
@@ -142,6 +143,25 @@ private:
   double max_vy_mps_ {1.2};
   double max_wz_radps_ {6.28};
   double reconnect_interval_sec_ {1.0};
+  double imu_accel_lsb_per_g_ {16384.0};
+  double imu_gyro_lsb_per_dps_ {16.4};
+  double imu_accel_bias_x_raw_ {0.0};
+  double imu_accel_bias_y_raw_ {0.0};
+  double imu_accel_bias_z_raw_ {0.0};
+  double imu_gyro_bias_x_raw_ {0.0};
+  double imu_gyro_bias_y_raw_ {0.0};
+  double imu_gyro_bias_z_raw_ {0.0};
+  double imu_angular_velocity_covariance_ {0.0025};
+  double imu_linear_acceleration_covariance_ {0.25};
+  bool imu_auto_gyro_bias_enabled_ {true};
+  int imu_auto_gyro_bias_samples_ {120};
+  double imu_auto_gyro_bias_max_motion_raw_ {20.0};
+  bool imu_auto_gyro_bias_ready_ {false};
+  bool publish_odom_tf_ {true};
+  int imu_auto_gyro_bias_count_ {0};
+  double imu_auto_gyro_bias_sum_x_raw_ {0.0};
+  double imu_auto_gyro_bias_sum_y_raw_ {0.0};
+  double imu_auto_gyro_bias_sum_z_raw_ {0.0};
 
   int serial_fd_ {-1};
   bool has_received_cmd_ {false};

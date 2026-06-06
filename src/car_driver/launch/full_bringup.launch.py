@@ -22,6 +22,7 @@ def generate_launch_description():
     cmd_timeout = LaunchConfiguration('cmd_timeout')
     publish_rate = LaunchConfiguration('publish_rate')
     tf_publish_rate = LaunchConfiguration('tf_publish_rate')
+    publish_odom_tf = LaunchConfiguration('publish_odom_tf')
     imu_frame_id = LaunchConfiguration('imu_frame_id')
     odom_frame_id = LaunchConfiguration('odom_frame_id')
     base_frame_id = LaunchConfiguration('base_frame_id')
@@ -69,6 +70,7 @@ def generate_launch_description():
         DeclareLaunchArgument('cmd_timeout', default_value='0.5'),
         DeclareLaunchArgument('publish_rate', default_value='30.0'),
         DeclareLaunchArgument('tf_publish_rate', default_value='20.0'),
+        DeclareLaunchArgument('publish_odom_tf', default_value='true'),
         DeclareLaunchArgument('imu_frame_id', default_value='imu_link'),
         DeclareLaunchArgument('odom_frame_id', default_value='odom'),
         DeclareLaunchArgument('base_frame_id', default_value='base_footprint'),
@@ -114,6 +116,7 @@ def generate_launch_description():
                 'cmd_timeout': cmd_timeout,
                 'publish_rate': publish_rate,
                 'tf_publish_rate': tf_publish_rate,
+                'publish_odom_tf': publish_odom_tf,
                 'imu_frame_id': imu_frame_id,
                 'odom_frame_id': odom_frame_id,
                 'base_frame_id': base_frame_id,

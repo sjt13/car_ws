@@ -51,6 +51,8 @@ namespace
 
 // STM32 协议里速度使用“真实值 * 1000”后的整数（见 $CAR:x,y,z!）。
 constexpr double kCmdScale = 1000.0;
+constexpr double kStandardGravity = 9.80665;
+constexpr double kDegToRad = 0.017453292519943295;
 
 // 对称限幅：把 value 裁剪到 [-limit, limit] 区间内。
 double clampSymmetric(double value, double limit)
@@ -123,6 +125,7 @@ void BaseDriverNode::declareAndLoadParameters()
   declare_parameter<double>("cmd_timeout", 0.5);
   declare_parameter<double>("publish_rate", 30.0);
   declare_parameter<double>("tf_publish_rate", 20.0);
+  declare_parameter<bool>("publish_odom_tf", true);
   declare_parameter<double>("odom_linear_deadband", 0.05);
   declare_parameter<double>("odom_angular_deadband", 0.10);
   declare_parameter<double>("odom_yaw_scale", 0.91);
@@ -133,12 +136,26 @@ void BaseDriverNode::declareAndLoadParameters()
   declare_parameter<std::string>("imu_frame_id", "imu_link");
   declare_parameter<std::string>("odom_frame_id", "odom");
   declare_parameter<std::string>("base_frame_id", "base_footprint");
+  declare_parameter<double>("imu_accel_lsb_per_g", 16384.0);
+  declare_parameter<double>("imu_gyro_lsb_per_dps", 16.4);
+  declare_parameter<double>("imu_accel_bias_x_raw", 0.0);
+  declare_parameter<double>("imu_accel_bias_y_raw", 0.0);
+  declare_parameter<double>("imu_accel_bias_z_raw", 0.0);
+  declare_parameter<double>("imu_gyro_bias_x_raw", 0.0);
+  declare_parameter<double>("imu_gyro_bias_y_raw", 0.0);
+  declare_parameter<double>("imu_gyro_bias_z_raw", 0.0);
+  declare_parameter<double>("imu_angular_velocity_covariance", 0.0025);
+  declare_parameter<double>("imu_linear_acceleration_covariance", 0.25);
+  declare_parameter<bool>("imu_auto_gyro_bias", true);
+  declare_parameter<int>("imu_auto_gyro_bias_samples", 120);
+  declare_parameter<double>("imu_auto_gyro_bias_max_motion_raw", 20.0);
 
   port_ = get_parameter("port").as_string();
   baudrate_ = get_parameter("baudrate").as_int();
   cmd_timeout_sec_ = get_parameter("cmd_timeout").as_double();
   publish_rate_hz_ = get_parameter("publish_rate").as_double();
   tf_publish_rate_hz_ = get_parameter("tf_publish_rate").as_double();
+  publish_odom_tf_ = get_parameter("publish_odom_tf").as_bool();
   odom_linear_deadband_mps_ = get_parameter("odom_linear_deadband").as_double();
   odom_angular_deadband_radps_ = get_parameter("odom_angular_deadband").as_double();
   odom_yaw_scale_ = get_parameter("odom_yaw_scale").as_double();
@@ -149,6 +166,19 @@ void BaseDriverNode::declareAndLoadParameters()
   imu_frame_id_ = get_parameter("imu_frame_id").as_string();
   odom_frame_id_ = get_parameter("odom_frame_id").as_string();
   base_frame_id_ = get_parameter("base_frame_id").as_string();
+  imu_accel_lsb_per_g_ = get_parameter("imu_accel_lsb_per_g").as_double();
+  imu_gyro_lsb_per_dps_ = get_parameter("imu_gyro_lsb_per_dps").as_double();
+  imu_accel_bias_x_raw_ = get_parameter("imu_accel_bias_x_raw").as_double();
+  imu_accel_bias_y_raw_ = get_parameter("imu_accel_bias_y_raw").as_double();
+  imu_accel_bias_z_raw_ = get_parameter("imu_accel_bias_z_raw").as_double();
+  imu_gyro_bias_x_raw_ = get_parameter("imu_gyro_bias_x_raw").as_double();
+  imu_gyro_bias_y_raw_ = get_parameter("imu_gyro_bias_y_raw").as_double();
+  imu_gyro_bias_z_raw_ = get_parameter("imu_gyro_bias_z_raw").as_double();
+  imu_angular_velocity_covariance_ = get_parameter("imu_angular_velocity_covariance").as_double();
+  imu_linear_acceleration_covariance_ = get_parameter("imu_linear_acceleration_covariance").as_double();
+  imu_auto_gyro_bias_enabled_ = get_parameter("imu_auto_gyro_bias").as_bool();
+  imu_auto_gyro_bias_samples_ = get_parameter("imu_auto_gyro_bias_samples").as_int();
+  imu_auto_gyro_bias_max_motion_raw_ = get_parameter("imu_auto_gyro_bias_max_motion_raw").as_double();
 
   if (publish_rate_hz_ <= 0.0) { publish_rate_hz_ = 30.0; }
   if (tf_publish_rate_hz_ <= 0.0) { tf_publish_rate_hz_ = 20.0; }
@@ -160,10 +190,19 @@ void BaseDriverNode::declareAndLoadParameters()
   if (imu_frame_id_.empty()) { imu_frame_id_ = "imu_link"; }
   if (odom_frame_id_.empty()) { odom_frame_id_ = "odom"; }
   if (base_frame_id_.empty()) { base_frame_id_ = "base_footprint"; }
+  if (imu_accel_lsb_per_g_ <= 0.0) { imu_accel_lsb_per_g_ = 16384.0; }
+  if (imu_gyro_lsb_per_dps_ <= 0.0) { imu_gyro_lsb_per_dps_ = 16.4; }
+  if (imu_angular_velocity_covariance_ < 0.0) { imu_angular_velocity_covariance_ = 0.0025; }
+  if (imu_linear_acceleration_covariance_ < 0.0) { imu_linear_acceleration_covariance_ = 0.25; }
+  if (imu_auto_gyro_bias_samples_ <= 0) { imu_auto_gyro_bias_samples_ = 120; }
+  if (imu_auto_gyro_bias_max_motion_raw_ < 0.0) { imu_auto_gyro_bias_max_motion_raw_ = 20.0; }
 }
 
 void BaseDriverNode::tfTimerCallback()
 {
+  if (!publish_odom_tf_) {
+    return;
+  }
   if (!odom_initialized_) {
     return;
   }
@@ -419,6 +458,7 @@ void BaseDriverNode::processReceivedFrame(const std::string & frame)
       return;
     }
     const auto stamp = now();
+    updateImuGyroAutoBias(telemetry.imu, telemetry.enc);
     publishImuRaw(telemetry.imu, stamp);
     publishWheelTicks(telemetry.enc);
     updateOdom(telemetry.enc, telemetry.imu, stamp);
@@ -538,19 +578,66 @@ bool BaseDriverNode::parseDbgIntegerFields(const std::string & payload, std::arr
   return index == values.size();
 }
 
+void BaseDriverNode::updateImuGyroAutoBias(const ImuTelemetry & imu, const EncoderTelemetry & enc)
+{
+  if (!imu_auto_gyro_bias_enabled_ || imu_auto_gyro_bias_ready_) {
+    return;
+  }
+  const bool stationary =
+    std::abs(static_cast<double>(enc.ix)) <= imu_auto_gyro_bias_max_motion_raw_ &&
+    std::abs(static_cast<double>(enc.iy)) <= imu_auto_gyro_bias_max_motion_raw_ &&
+    std::abs(static_cast<double>(enc.iw)) <= imu_auto_gyro_bias_max_motion_raw_;
+  if (!stationary) {
+    imu_auto_gyro_bias_count_ = 0;
+    imu_auto_gyro_bias_sum_x_raw_ = 0.0;
+    imu_auto_gyro_bias_sum_y_raw_ = 0.0;
+    imu_auto_gyro_bias_sum_z_raw_ = 0.0;
+    return;
+  }
+
+  imu_auto_gyro_bias_sum_x_raw_ += static_cast<double>(imu.gx);
+  imu_auto_gyro_bias_sum_y_raw_ += static_cast<double>(imu.gy);
+  imu_auto_gyro_bias_sum_z_raw_ += static_cast<double>(imu.gz);
+  ++imu_auto_gyro_bias_count_;
+  if (imu_auto_gyro_bias_count_ < imu_auto_gyro_bias_samples_) {
+    return;
+  }
+
+  imu_gyro_bias_x_raw_ = imu_auto_gyro_bias_sum_x_raw_ / static_cast<double>(imu_auto_gyro_bias_count_);
+  imu_gyro_bias_y_raw_ = imu_auto_gyro_bias_sum_y_raw_ / static_cast<double>(imu_auto_gyro_bias_count_);
+  imu_gyro_bias_z_raw_ = imu_auto_gyro_bias_sum_z_raw_ / static_cast<double>(imu_auto_gyro_bias_count_);
+  imu_auto_gyro_bias_ready_ = true;
+  RCLCPP_INFO(
+    get_logger(),
+    "IMU gyro raw bias calibrated from %d stationary samples: x=%.3f y=%.3f z=%.3f",
+    imu_auto_gyro_bias_count_, imu_gyro_bias_x_raw_, imu_gyro_bias_y_raw_, imu_gyro_bias_z_raw_);
+}
+
 void BaseDriverNode::publishImuRaw(const ImuTelemetry & imu, const rclcpp::Time & stamp)
 {
   if (!imu_raw_pub_) { return; }
   sensor_msgs::msg::Imu msg;
   msg.header.stamp = stamp;
   msg.header.frame_id = imu_frame_id_;
-  msg.linear_acceleration.x = static_cast<double>(imu.ax);
-  msg.linear_acceleration.y = static_cast<double>(imu.ay);
-  msg.linear_acceleration.z = static_cast<double>(imu.az);
-  msg.angular_velocity.x = static_cast<double>(imu.gx);
-  msg.angular_velocity.y = static_cast<double>(imu.gy);
-  msg.angular_velocity.z = static_cast<double>(imu.gz);
+  msg.linear_acceleration.x =
+    (static_cast<double>(imu.ax) - imu_accel_bias_x_raw_) / imu_accel_lsb_per_g_ * kStandardGravity;
+  msg.linear_acceleration.y =
+    (static_cast<double>(imu.ay) - imu_accel_bias_y_raw_) / imu_accel_lsb_per_g_ * kStandardGravity;
+  msg.linear_acceleration.z =
+    (static_cast<double>(imu.az) - imu_accel_bias_z_raw_) / imu_accel_lsb_per_g_ * kStandardGravity;
+  msg.angular_velocity.x =
+    (static_cast<double>(imu.gx) - imu_gyro_bias_x_raw_) / imu_gyro_lsb_per_dps_ * kDegToRad;
+  msg.angular_velocity.y =
+    (static_cast<double>(imu.gy) - imu_gyro_bias_y_raw_) / imu_gyro_lsb_per_dps_ * kDegToRad;
+  msg.angular_velocity.z =
+    (static_cast<double>(imu.gz) - imu_gyro_bias_z_raw_) / imu_gyro_lsb_per_dps_ * kDegToRad;
   msg.orientation_covariance[0] = -1.0;
+  msg.angular_velocity_covariance[0] = imu_angular_velocity_covariance_;
+  msg.angular_velocity_covariance[4] = imu_angular_velocity_covariance_;
+  msg.angular_velocity_covariance[8] = imu_angular_velocity_covariance_;
+  msg.linear_acceleration_covariance[0] = imu_linear_acceleration_covariance_;
+  msg.linear_acceleration_covariance[4] = imu_linear_acceleration_covariance_;
+  msg.linear_acceleration_covariance[8] = imu_linear_acceleration_covariance_;
   imu_raw_pub_->publish(msg);
 }
 
