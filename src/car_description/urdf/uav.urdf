@@ -1,0 +1,202 @@
+<?xml version="1.0"?>
+<robot name="uav">
+  <material name="carbon_black">
+    <color rgba="0.02 0.025 0.03 1.0"/>
+  </material>
+  <material name="matte_black">
+    <color rgba="0.01 0.01 0.012 1.0"/>
+  </material>
+  <material name="prop_dark">
+    <color rgba="0.03 0.04 0.06 0.55"/>
+  </material>
+  <material name="uav_blue">
+    <color rgba="0.10 0.38 0.95 1.0"/>
+  </material>
+
+  <link name="uav/base_link"/>
+
+  <link name="uav/fuselage">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.180 0.120 0.070"/>
+      </geometry>
+      <material name="uav_blue"/>
+    </visual>
+  </link>
+  <joint name="uav/base_to_fuselage" type="fixed">
+    <parent link="uav/base_link"/>
+    <child link="uav/fuselage"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="uav/arm_ne_sw">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0.78539816339"/>
+      <geometry>
+        <box size="0.455 0.030 0.030"/>
+      </geometry>
+      <material name="carbon_black"/>
+    </visual>
+  </link>
+  <joint name="uav/fuselage_to_arm_ne_sw" type="fixed">
+    <parent link="uav/fuselage"/>
+    <child link="uav/arm_ne_sw"/>
+    <origin xyz="0 0 0.020" rpy="0 0 0"/>
+  </joint>
+
+  <link name="uav/arm_nw_se">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 -0.78539816339"/>
+      <geometry>
+        <box size="0.455 0.030 0.030"/>
+      </geometry>
+      <material name="carbon_black"/>
+    </visual>
+  </link>
+  <joint name="uav/fuselage_to_arm_nw_se" type="fixed">
+    <parent link="uav/fuselage"/>
+    <child link="uav/arm_nw_se"/>
+    <origin xyz="0 0 0.020" rpy="0 0 0"/>
+  </joint>
+  <link name="uav/front_left_motor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.028" length="0.030"/>
+      </geometry>
+      <material name="matte_black"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.020" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.090" length="0.006"/>
+      </geometry>
+      <material name="prop_dark"/>
+    </visual>
+  </link>
+  <joint name="uav/fuselage_to_front_left_motor" type="fixed">
+    <parent link="uav/fuselage"/>
+    <child link="uav/front_left_motor"/>
+    <origin xyz="0.160 0.160 0.040" rpy="0 0 0"/>
+  </joint>
+  <link name="uav/front_right_motor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.028" length="0.030"/>
+      </geometry>
+      <material name="matte_black"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.020" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.090" length="0.006"/>
+      </geometry>
+      <material name="prop_dark"/>
+    </visual>
+  </link>
+  <joint name="uav/fuselage_to_front_right_motor" type="fixed">
+    <parent link="uav/fuselage"/>
+    <child link="uav/front_right_motor"/>
+    <origin xyz="0.160 -0.160 0.040" rpy="0 0 0"/>
+  </joint>
+  <link name="uav/rear_left_motor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.028" length="0.030"/>
+      </geometry>
+      <material name="matte_black"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.020" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.090" length="0.006"/>
+      </geometry>
+      <material name="prop_dark"/>
+    </visual>
+  </link>
+  <joint name="uav/fuselage_to_rear_left_motor" type="fixed">
+    <parent link="uav/fuselage"/>
+    <child link="uav/rear_left_motor"/>
+    <origin xyz="-0.160 0.160 0.040" rpy="0 0 0"/>
+  </joint>
+  <link name="uav/rear_right_motor">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.028" length="0.030"/>
+      </geometry>
+      <material name="matte_black"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.020" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.090" length="0.006"/>
+      </geometry>
+      <material name="prop_dark"/>
+    </visual>
+  </link>
+  <joint name="uav/fuselage_to_rear_right_motor" type="fixed">
+    <parent link="uav/fuselage"/>
+    <child link="uav/rear_right_motor"/>
+    <origin xyz="-0.160 -0.160 0.040" rpy="0 0 0"/>
+  </joint>
+  <link name="uav/front_left_leg">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.25 0 0"/>
+      <geometry>
+        <box size="0.030 0.030 0.155"/>
+      </geometry>
+      <material name="carbon_black"/>
+    </visual>
+  </link>
+  <joint name="uav/fuselage_to_front_left_leg" type="fixed">
+    <parent link="uav/fuselage"/>
+    <child link="uav/front_left_leg"/>
+    <origin xyz="0.105 0.100 -0.105" rpy="0 0 0"/>
+  </joint>
+  <link name="uav/front_right_leg">
+    <visual>
+      <origin xyz="0 0 0" rpy="-0.25 0 0"/>
+      <geometry>
+        <box size="0.030 0.030 0.155"/>
+      </geometry>
+      <material name="carbon_black"/>
+    </visual>
+  </link>
+  <joint name="uav/fuselage_to_front_right_leg" type="fixed">
+    <parent link="uav/fuselage"/>
+    <child link="uav/front_right_leg"/>
+    <origin xyz="0.105 -0.100 -0.105" rpy="0 0 0"/>
+  </joint>
+  <link name="uav/rear_left_leg">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.25 0 0"/>
+      <geometry>
+        <box size="0.030 0.030 0.155"/>
+      </geometry>
+      <material name="carbon_black"/>
+    </visual>
+  </link>
+  <joint name="uav/fuselage_to_rear_left_leg" type="fixed">
+    <parent link="uav/fuselage"/>
+    <child link="uav/rear_left_leg"/>
+    <origin xyz="-0.105 0.100 -0.105" rpy="0 0 0"/>
+  </joint>
+  <link name="uav/rear_right_leg">
+    <visual>
+      <origin xyz="0 0 0" rpy="-0.25 0 0"/>
+      <geometry>
+        <box size="0.030 0.030 0.155"/>
+      </geometry>
+      <material name="carbon_black"/>
+    </visual>
+  </link>
+  <joint name="uav/fuselage_to_rear_right_leg" type="fixed">
+    <parent link="uav/fuselage"/>
+    <child link="uav/rear_right_leg"/>
+    <origin xyz="-0.105 -0.100 -0.105" rpy="0 0 0"/>
+  </joint>
+</robot>

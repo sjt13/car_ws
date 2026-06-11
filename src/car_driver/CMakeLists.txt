@@ -46,6 +46,13 @@ install(
 )
 
 install(
+  PROGRAMS
+    scripts/goal_slam_navigator_node.py
+    scripts/start_goal_slam_nav.sh
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(
   TARGETS base_driver_node
   DESTINATION lib/${PROJECT_NAME}
 )

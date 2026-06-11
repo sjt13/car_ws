@@ -33,9 +33,11 @@ class UavTargetBridgeNode(Node):
         self.declare_parameter('target_frame', 'map')
         self.declare_parameter('points_topic', '/uav/target_points_map')
         self.declare_parameter('markers_topic', '/uav/target_markers')
+        self.declare_parameter('reached_goal_topic', '/goal_slam_nav/reached_goal')
         self.declare_parameter('class_filter', '')
         self.declare_parameter('min_score', 0.0)
         self.declare_parameter('max_targets', 20)
+        self.declare_parameter('visited_match_radius_m', 0.45)
         self.declare_parameter('tf_timeout_sec', 0.2)
         self.declare_parameter('marker_lifetime_sec', 0.0)
         self.declare_parameter('marker_republish_hz', 1.0)
@@ -53,9 +55,11 @@ class UavTargetBridgeNode(Node):
         self.target_frame = str(self.get_parameter('target_frame').value)
         self.points_topic = str(self.get_parameter('points_topic').value)
         self.markers_topic = str(self.get_parameter('markers_topic').value)
+        self.reached_goal_topic = str(self.get_parameter('reached_goal_topic').value)
         self.class_filter = self._parse_class_filter(str(self.get_parameter('class_filter').value))
         self.min_score = float(self.get_parameter('min_score').value)
         self.max_targets = int(self.get_parameter('max_targets').value)
+        self.visited_match_radius_m = float(self.get_parameter('visited_match_radius_m').value)
         self.tf_timeout_sec = float(self.get_parameter('tf_timeout_sec').value)
         self.marker_lifetime_sec = float(self.get_parameter('marker_lifetime_sec').value)
         self.marker_republish_hz = float(self.get_parameter('marker_republish_hz').value)
@@ -74,6 +78,7 @@ class UavTargetBridgeNode(Node):
         self.markers_pub = self.create_publisher(MarkerArray, self.markers_topic, 10)
         self._last_pose_array: Optional[PoseArray] = None
         self._last_markers: Optional[MarkerArray] = None
+        self._visited_points: List[Tuple[float, float, float]] = []
 
         if self.pose_array_topic:
             self.create_subscription(PoseArray, self.pose_array_topic, self.pose_array_callback, 10)
@@ -81,6 +86,8 @@ class UavTargetBridgeNode(Node):
             self.create_subscription(PoseStamped, self.pose_stamped_topic, self.pose_stamped_callback, 10)
         if self.detections_topic:
             self.create_subscription(Detection3DArray, self.detections_topic, self.detections_callback, 10)
+        if self.reached_goal_topic:
+            self.create_subscription(PoseStamped, self.reached_goal_topic, self.reached_goal_callback, 10)
         if self.marker_republish_hz > 0.0:
             self.create_timer(1.0 / self.marker_republish_hz, self._republish_last)
 
@@ -92,6 +99,7 @@ class UavTargetBridgeNode(Node):
             f'detections_topic={self.detections_topic}, '
             f'target_frame={self.target_frame}, class_filter={class_filter_text}, '
             f'min_score={self.min_score:.2f}, max_targets={self.max_targets}, '
+            f'reached_goal_topic={self.reached_goal_topic}, '
             f'marker_republish_hz={self.marker_republish_hz:.2f}'
         )
 
@@ -120,6 +128,17 @@ class UavTargetBridgeNode(Node):
         targets.sort(key=lambda item: item[2], reverse=True)
         self._publish_targets(targets[:self.max_targets], source_frame, msg.header.stamp)
 
+    def reached_goal_callback(self, msg: PoseStamped):
+        transformed = self._transform_pose_to_target_frame(msg)
+        if transformed is None:
+            return
+        point = (
+            transformed.pose.position.x,
+            transformed.pose.position.y,
+            transformed.pose.position.z,
+        )
+        self._remember_visited_point(point)
+
     def _publish_targets(self, targets: List[Target], source_frame: str, stamp):
         if not targets:
             self._publish_empty(stamp)
@@ -138,6 +157,7 @@ class UavTargetBridgeNode(Node):
             point_target = self._transform_point(point_source, tf_msg)
             if self.force_ground_z:
                 point_target = (point_target[0], point_target[1], self.ground_z)
+            visited = self._is_visited_point(point_target)
 
             pose = Pose()
             pose.position = Point(x=point_target[0], y=point_target[1], z=point_target[2])
@@ -145,8 +165,8 @@ class UavTargetBridgeNode(Node):
             pose_array.poses.append(pose)
 
             marker_id = len(markers.markers)
-            markers.markers.append(self._make_sphere_marker(marker_id, stamp, pose.position, score))
-            markers.markers.append(self._make_text_marker(marker_id + 1, stamp, pose.position, label, score))
+            markers.markers.append(self._make_target_marker(marker_id, stamp, pose.position, label, visited))
+            markers.markers.append(self._make_text_marker(marker_id + 1, stamp, pose.position, label, score, visited))
 
         self.points_pub.publish(pose_array)
         delete_all = Marker()
@@ -201,6 +221,48 @@ class UavTargetBridgeNode(Node):
         out = rot @ p + np.array([t.x, t.y, t.z], dtype=np.float64)
         return float(out[0]), float(out[1]), float(out[2])
 
+    def _transform_pose_to_target_frame(self, msg: PoseStamped) -> Optional[PoseStamped]:
+        source_frame = msg.header.frame_id or self.target_frame
+        out = PoseStamped()
+        out.header.stamp = msg.header.stamp
+        out.header.frame_id = self.target_frame
+        out.pose = msg.pose
+        if source_frame == self.target_frame:
+            return out
+
+        tf_msg = self._lookup_transform(source_frame, msg.header.stamp)
+        if tf_msg is None:
+            return None
+
+        point_target = self._transform_point(
+            (msg.pose.position.x, msg.pose.position.y, msg.pose.position.z),
+            tf_msg,
+        )
+        if self.force_ground_z:
+            point_target = (point_target[0], point_target[1], self.ground_z)
+        out.pose.position = Point(x=point_target[0], y=point_target[1], z=point_target[2])
+        return out
+
+    def _remember_visited_point(self, point: Tuple[float, float, float]) -> None:
+        for known in self._visited_points:
+            if self._point_distance_2d(known, point) <= self.visited_match_radius_m:
+                return
+        self._visited_points.append(point)
+        if self.debug_log:
+            self.get_logger().info(
+                f'remember visited UAV target x={point[0]:.3f}, y={point[1]:.3f}'
+            )
+
+    def _is_visited_point(self, point: Tuple[float, float, float]) -> bool:
+        return any(
+            self._point_distance_2d(known, point) <= self.visited_match_radius_m
+            for known in self._visited_points
+        )
+
+    @staticmethod
+    def _point_distance_2d(a: Tuple[float, float, float], b: Tuple[float, float, float]) -> float:
+        return math.hypot(a[0] - b[0], a[1] - b[1])
+
     def _publish_empty(self, stamp):
         pose_array = PoseArray()
         pose_array.header.stamp = stamp
@@ -224,24 +286,27 @@ class UavTargetBridgeNode(Node):
         self.points_pub.publish(self._last_pose_array)
         self.markers_pub.publish(self._last_markers)
 
-    def _make_sphere_marker(self, marker_id: int, stamp, position: Point, score: float) -> Marker:
+    def _make_target_marker(self, marker_id: int, stamp, position: Point, label: str, visited: bool) -> Marker:
         marker = Marker()
         marker.header.stamp = stamp
         marker.header.frame_id = self.target_frame
         marker.ns = 'uav_targets'
         marker.id = marker_id
-        marker.type = Marker.SPHERE
+        marker.type = self._marker_type_for_label(label)
         marker.action = Marker.ADD
         marker.pose.position = position
         marker.pose.orientation.w = 1.0
         marker.scale.x = self.marker_scale
         marker.scale.y = self.marker_scale
         marker.scale.z = self.marker_scale
-        marker.color = ColorRGBA(r=0.1, g=0.55 + 0.45 * min(max(score, 0.0), 1.0), b=1.0, a=0.9)
+        if visited:
+            marker.color = ColorRGBA(r=0.1, g=0.25, b=1.0, a=0.95)
+        else:
+            marker.color = self._marker_color_for_label(label)
         marker.lifetime = Duration(seconds=self.marker_lifetime_sec).to_msg()
         return marker
 
-    def _make_text_marker(self, marker_id: int, stamp, position: Point, label: str, score: float) -> Marker:
+    def _make_text_marker(self, marker_id: int, stamp, position: Point, label: str, score: float, visited: bool) -> Marker:
         marker = Marker()
         marker.header.stamp = stamp
         marker.header.frame_id = self.target_frame
@@ -252,10 +317,25 @@ class UavTargetBridgeNode(Node):
         marker.pose.position = Point(x=position.x, y=position.y, z=position.z + self.marker_scale * 1.3)
         marker.pose.orientation.w = 1.0
         marker.scale.z = self.marker_scale * 0.6
-        marker.color = ColorRGBA(r=0.8, g=0.95, b=1.0, a=0.95)
-        marker.text = f'{label} {score:.2f}' if label else f'{score:.2f}'
+        marker.color = ColorRGBA(r=0.35, g=0.6, b=1.0, a=0.95) if visited else ColorRGBA(r=0.8, g=0.95, b=1.0, a=0.95)
+        text = f'{label} {score:.2f}' if label else f'{score:.2f}'
+        marker.text = f'已到达 {text}' if visited else text
         marker.lifetime = Duration(seconds=self.marker_lifetime_sec).to_msg()
         return marker
+
+    @staticmethod
+    def _marker_type_for_label(label: str) -> int:
+        key = label.strip().lower()
+        if key in ('red_cube', 'red cube'):
+            return Marker.CUBE
+        return Marker.SPHERE
+
+    @staticmethod
+    def _marker_color_for_label(label: str) -> ColorRGBA:
+        key = label.strip().lower()
+        if key in ('red_ball', 'red ball', 'red_cube', 'red cube'):
+            return ColorRGBA(r=1.0, g=0.05, b=0.02, a=0.95)
+        return ColorRGBA(r=0.1, g=0.85, b=1.0, a=0.9)
 
     @staticmethod
     def _best_label(det: Detection3D) -> Tuple[str, float]:

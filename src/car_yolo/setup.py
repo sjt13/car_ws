@@ -25,6 +25,7 @@ setup(
             'launch/target_mapper.launch.py',
             'launch/uav_target_bridge.launch.py',
             'launch/openclaw_target_decision.launch.py',
+            'launch/openclaw_goal_decision.launch.py',
         ]),
     ],
     install_requires=['setuptools'],
@@ -44,6 +45,7 @@ setup(
             'target_mapper_node = car_yolo.target_mapper_node:main',
             'uav_target_bridge_node = car_yolo.uav_target_bridge_node:main',
             'openclaw_target_decision_node = car_yolo.openclaw_target_decision_node:main',
+            'openclaw_goal_decision_node = car_yolo.openclaw_goal_decision_node:main',
         ],
     },
 )
