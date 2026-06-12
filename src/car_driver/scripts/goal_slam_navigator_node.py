@@ -40,6 +40,7 @@ class GoalSlamNavigator(Node):
         self.declare_parameter('free_threshold', 20)
         self.declare_parameter('clearance_radius_m', 0.18)
         self.declare_parameter('goal_tolerance_m', 0.30)
+        self.declare_parameter('minimum_temporary_goal_distance_m', 0.60)
         self.declare_parameter('temporary_goal_distances', '1.5,1.2,1.0,0.8,0.6,0.4')
         self.declare_parameter('temporary_goal_angle_offsets_deg', '0,-10,10,-20,20,-35,35,-50,50')
         self.declare_parameter('retry_period_sec', 2.0)
@@ -55,6 +56,9 @@ class GoalSlamNavigator(Node):
         self.free_threshold = int(self.get_parameter('free_threshold').value)
         self.clearance_radius_m = float(self.get_parameter('clearance_radius_m').value)
         self.goal_tolerance_m = float(self.get_parameter('goal_tolerance_m').value)
+        self.minimum_temporary_goal_distance_m = float(
+            self.get_parameter('minimum_temporary_goal_distance_m').value
+        )
         self.temporary_goal_distances = self._parse_float_list(
             str(self.get_parameter('temporary_goal_distances').value)
         )
@@ -83,6 +87,7 @@ class GoalSlamNavigator(Node):
         self.active_goal_is_final = False
         self.nav_goal_handle = None
         self.nav_goal_pending = False
+        self.nav_request_id = 0
         self.temporary_goal_count = 0
         self.nav_failure_count = 0
         self.next_retry_time = self.get_clock().now()
@@ -156,6 +161,7 @@ class GoalSlamNavigator(Node):
         self._pose_goal_callback(goal, source_topic)
 
     def _set_new_goal(self, goal: PoseStamped, source_topic: str) -> None:
+        self.nav_request_id += 1
         if self.nav_goal_handle is not None:
             self.nav_goal_handle.cancel_goal_async()
             self.nav_goal_handle = None
@@ -216,6 +222,18 @@ class GoalSlamNavigator(Node):
                 self._publish_status('RETRY_PLAN no temporary goal yet; waiting for map growth')
             return
 
+        temporary_distance = self._distance(
+            robot_pose.pose.position,
+            temp_goal.pose.position,
+        )
+        if temporary_distance < self.minimum_temporary_goal_distance_m:
+            self.state = 'RETRY_PLAN'
+            self.next_retry_time = self._time_after(self.retry_period_sec)
+            self._publish_status(
+                'RETRY_PLAN temporary goal too close; waiting for map growth'
+            )
+            return
+
         self.temporary_goal_count += 1
         if self.temporary_goal_count > self.max_temporary_goals:
             self.state = 'FAILED_OR_FALLBACK'
@@ -241,6 +259,7 @@ class GoalSlamNavigator(Node):
             return False
 
         if cancel_active_goal and self.nav_goal_handle is not None:
+            self.nav_request_id += 1
             self.nav_goal_handle.cancel_goal_async()
             self.nav_goal_handle = None
 
@@ -260,6 +279,8 @@ class GoalSlamNavigator(Node):
         self.reached_goal_pub.publish(reached)
 
     def _send_nav_goal(self, pose: PoseStamped, is_final: bool) -> None:
+        self.nav_request_id += 1
+        request_id = self.nav_request_id
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose = pose
         goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
@@ -272,9 +293,13 @@ class GoalSlamNavigator(Node):
 
         self.nav_goal_pending = True
         send_future = self.nav_client.send_goal_async(goal_msg)
-        send_future.add_done_callback(self._on_goal_response)
+        send_future.add_done_callback(
+            lambda future, current_id=request_id: self._on_goal_response(future, current_id)
+        )
 
-    def _on_goal_response(self, future) -> None:
+    def _on_goal_response(self, future, request_id: int) -> None:
+        if request_id != self.nav_request_id:
+            return
         self.nav_goal_pending = False
         goal_handle = future.result()
         if goal_handle is None or not goal_handle.accepted:
@@ -287,9 +312,13 @@ class GoalSlamNavigator(Node):
 
         self.nav_goal_handle = goal_handle
         result_future = goal_handle.get_result_async()
-        result_future.add_done_callback(self._on_nav_result)
+        result_future.add_done_callback(
+            lambda result, current_id=request_id: self._on_nav_result(result, current_id)
+        )
 
-    def _on_nav_result(self, future) -> None:
+    def _on_nav_result(self, future, request_id: int) -> None:
+        if request_id != self.nav_request_id:
+            return
         result = future.result()
         self.nav_goal_handle = None
 

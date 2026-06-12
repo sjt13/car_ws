@@ -117,6 +117,7 @@ class OpenClawGoalDecisionNode(Node):
         self._mission_current: Optional[PoseStamped] = None
         self._mission_total = 0
         self._mission_done = 0
+        self._failure_handled_for_current = False
         self._continuous_auto_active = False
         self._last_continuous_signature: Tuple[Tuple[Any, ...], ...] = tuple()
         self._next_continuous_decision_time = self.get_clock().now()
@@ -201,18 +202,28 @@ class OpenClawGoalDecisionNode(Node):
             f'MISSION_GOAL_REACHED {self._mission_done}/{self._mission_total} '
             f'x={p.x:.3f}, y={p.y:.3f}'
         )
+        self._mission_current = None
+        self._reorder_remaining_mission_goals()
         self._publish_next_mission_goal()
 
     def nav_status_callback(self, msg: String) -> None:
         if not self._mission_active:
             return
         if 'FAILED_OR_FALLBACK' not in msg.data:
+            self._failure_handled_for_current = False
             return
-        self._mission_active = False
-        self._mission_queue = []
+        if self._failure_handled_for_current or self._mission_current is None:
+            return
+        self._failure_handled_for_current = True
+        self._mission_done += 1
+        p = self._mission_current.pose.position
+        self._publish_mission_status(
+            f'MISSION_GOAL_FAILED {self._mission_done}/{self._mission_total} '
+            f'x={p.x:.3f}, y={p.y:.3f}，跳过当前目标并继续：{msg.data}'
+        )
         self._mission_current = None
-        self._continuous_auto_active = False
-        self._publish_mission_status(f'MISSION_ABORTED 导航失败，停止多目标任务：{msg.data}')
+        self._reorder_remaining_mission_goals()
+        self._publish_next_mission_goal()
 
     def _run_decision(self, auto_send_goal: bool, force: bool = False) -> None:
         now = self.get_clock().now()
@@ -409,8 +420,9 @@ class OpenClawGoalDecisionNode(Node):
             '"scores": [{"index": int, "score": number, "note": string}]}\n'
             'Rules:\n'
             '- Never select targets where visited=true.\n'
-            '- Lower class_priority_rank is higher priority; red_ball has priority over red_cube.\n'
-            '- Prefer closer valid targets unless class priority or confidence gives a clear reason.\n'
+            '- Minimize the next driving distance first. Prefer the nearest valid target.\n'
+            '- Use class_priority_rank and confidence only as tie-breakers when candidate distances '
+            'differ by no more than 0.5 m.\n'
             '- selected_index must be one of the provided target indices or null if no target is valid.\n'
             '- ordered_indices should contain valid unvisited target indices in recommended visit order.\n'
             '- decision_text must be detailed. Include input target list, class priority rule, robot pose '
@@ -593,6 +605,7 @@ class OpenClawGoalDecisionNode(Node):
         self._mission_current = None
         self._mission_total = len(queue)
         self._mission_done = 0
+        self._failure_handled_for_current = False
         self._publish_mission_status(f'MISSION_STARTED total={self._mission_total}')
         self._publish_next_mission_goal()
         return True
@@ -626,6 +639,25 @@ class OpenClawGoalDecisionNode(Node):
             f'x={p.x:.3f}, y={p.y:.3f}, remaining={len(self._mission_queue)}'
         )
 
+    def _reorder_remaining_mission_goals(self) -> None:
+        if len(self._mission_queue) < 2:
+            return
+        frame_id = self._mission_queue[0].header.frame_id or self.target_frame
+        robot_pose = self._lookup_robot_pose(frame_id)
+        if robot_pose is None:
+            self._publish_mission_status(
+                'MISSION_REPLAN_SKIPPED 无法获取实时车位姿，保留当前剩余目标顺序'
+            )
+            return
+
+        self._mission_queue.sort(
+            key=lambda goal: self._distance_to_robot(goal.pose, robot_pose)
+        )
+        self._publish_mission_status(
+            f'MISSION_REPLANNED robot_x={robot_pose[0]:.3f}, robot_y={robot_pose[1]:.3f}, '
+            f'remaining={len(self._mission_queue)}'
+        )
+
     def _reset_mission(self) -> None:
         if self._mission_active:
             self._publish_mission_status('MISSION_REPLACED 收到新的 OpenClaw 决策命令，替换当前多目标任务')
@@ -634,6 +666,7 @@ class OpenClawGoalDecisionNode(Node):
         self._mission_current = None
         self._mission_total = 0
         self._mission_done = 0
+        self._failure_handled_for_current = False
 
     def _publish_mission_status(self, text: str) -> None:
         msg = String()
@@ -688,7 +721,9 @@ class OpenClawGoalDecisionNode(Node):
             distance = item['distance_m'] if item['distance_m'] is not None else 999.0
             confidence_penalty = 0.0 if item['score'] is None else 1.0 - max(0.0, min(float(item['score']), 1.0))
             return (
-                float(item['class_priority_rank']) * 100.0 + distance + confidence_penalty,
+                distance
+                + float(item['class_priority_rank']) * 0.25
+                + confidence_penalty * 0.10,
                 distance,
                 int(item['index']),
             )

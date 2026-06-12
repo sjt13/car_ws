@@ -277,6 +277,7 @@ def generate_launch_description():
                 'pose_array_topics': LaunchConfiguration('pose_array_topics'),
                 'map_topic': '/map',
                 'navigate_action': '/navigate_to_pose',
+                'minimum_temporary_goal_distance_m': 0.60,
             }],
         ),
     ])
