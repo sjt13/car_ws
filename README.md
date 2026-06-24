@@ -146,6 +146,35 @@ ros2 launch car_driver goal_slam_nav_bringup.launch.py
 
 该入口组合了基础 bringup、EKF、`slam_toolbox`、Nav2、UAV 目标桥接、OpenClaw 目标决策和 `goal_slam_navigator_node.py`。它不启动 AMCL。
 
+### 车端一键脚本
+
+ELF2 上保留了车端一键启动脚本，日常现场启动优先用脚本而不是手动拼长命令：
+
+```bash
+cd /home/elf/car/car_ws
+./src/car_driver/scripts/start_goal_slam_nav.sh
+```
+
+该脚本会设置默认 ROS 环境变量，加载 ROS2 Humble 和当前工作区，并在启动前清理旧的 goal-slam/Nav2 相关进程，最后执行：
+
+```bash
+ros2 launch car_driver goal_slam_nav_bringup.launch.py
+```
+
+已知地图 UAV 目标桥接链也有脚本入口：
+
+```bash
+./src/car_driver/scripts/start_uav_nav_bridge.sh
+```
+
+清理当前用户下常见 ROS2 launch 和节点进程：
+
+```bash
+./src/car_driver/scripts/kill_ros_launches.sh
+```
+
+桌面快捷方式对应的脚本位置和当前部署方式见 `src/car_driver/README.md`。
+
 ### UAV 目标桥接
 
 已知地图导航链 + UAV 共享目标桥接：

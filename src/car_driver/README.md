@@ -21,7 +21,10 @@
 | `config/mapper_params_online_async.yaml` | `slam_toolbox` 在线建图参数。 |
 | `config/camera_color_factory_640x480.yaml` | Astra Pro RGB 出厂内参文件，供 `v4l2_camera` 加载。 |
 | `scripts/goal_slam_navigator_node.py` | 目标驱动在线 SLAM 导航状态机。 |
-| `scripts/start_goal_slam_nav.sh` | ELF2 上启动 goal-slam 链路的脚本。 |
+| `scripts/start_goal_slam_nav.sh` | ELF2 上启动 goal-slam 链路的一键脚本。 |
+| `scripts/start_uav_nav_bridge.sh` | 已知地图 Nav2 + UAV 目标桥接一键脚本。 |
+| `scripts/kill_ros_launches.sh` | 清理当前用户下常见 ROS2 launch 和节点进程。 |
+| `scripts/*.desktop` | ELF2/VM 桌面快捷方式模板，实际 Exec 路径按部署位置写死。 |
 
 ## 节点
 
@@ -174,6 +177,106 @@ UAV 已知地图桥接：
 ```bash
 ros2 launch car_driver uav_nav_bridge_bringup.launch.py
 ```
+
+## 车端一键脚本
+
+现场启动时优先使用脚本入口。脚本会统一设置 ROS 环境变量、加载 ROS2 Humble 和工作区，减少手动命令遗漏。
+
+### `start_goal_slam_nav.sh`
+
+源码路径：
+
+```text
+src/car_driver/scripts/start_goal_slam_nav.sh
+```
+
+常用运行方式：
+
+```bash
+cd /home/elf/car/car_ws
+./src/car_driver/scripts/start_goal_slam_nav.sh
+```
+
+该脚本默认设置：
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `ROS_DOMAIN_ID` | `30` | ROS2 通信 domain。已有外部值时不覆盖。 |
+| `ROS_LOCALHOST_ONLY` | `0` | 允许非 localhost 通信。已有外部值时不覆盖。 |
+
+脚本启动前会按进程名清理旧的 goal-slam/Nav2 相关进程，包括 `base_driver_node`、`rplidar_node`、`ekf_node`、`slam_toolbox`、Nav2 server、`uav_target_bridge_node`、`openclaw_goal_decision_node` 和 `goal_slam_navigator_node.py` 等。清理流程为先 `TERM`，短暂等待后仍存在则 `KILL`。
+
+最后执行：
+
+```bash
+ros2 launch car_driver goal_slam_nav_bringup.launch.py "$@"
+```
+
+因此可以直接在脚本后追加 launch 参数，例如：
+
+```bash
+./src/car_driver/scripts/start_goal_slam_nav.sh use_rviz:=true
+```
+
+`CMakeLists.txt` 会把该脚本安装到 `install/car_driver/lib/car_driver/start_goal_slam_nav.sh`，但脚本内部写死工作区路径 `/home/elf/car/car_ws`，当前主要面向 ELF2 实车工作区。
+
+### `start_uav_nav_bridge.sh`
+
+源码路径：
+
+```text
+src/car_driver/scripts/start_uav_nav_bridge.sh
+```
+
+运行方式：
+
+```bash
+cd /home/elf/car/car_ws
+./src/car_driver/scripts/start_uav_nav_bridge.sh
+```
+
+该脚本同样设置 `ROS_DOMAIN_ID=30` 和 `ROS_LOCALHOST_ONLY=0`，加载 `/opt/ros/humble/setup.bash` 与 `install/setup.bash`，最后执行：
+
+```bash
+ros2 launch car_driver uav_nav_bridge_bringup.launch.py "$@"
+```
+
+脚本注释中说明当前默认走自然导航 Nav2 + EKF odom。若要回到原始 `/odom` TF 链，可以附加：
+
+```bash
+./src/car_driver/scripts/start_uav_nav_bridge.sh \
+  use_ekf_odom:=false \
+  publish_odom_tf:=true
+```
+
+### `kill_ros_launches.sh`
+
+源码路径：
+
+```text
+src/car_driver/scripts/kill_ros_launches.sh
+```
+
+运行方式：
+
+```bash
+cd /home/elf/car/car_ws
+./src/car_driver/scripts/kill_ros_launches.sh
+```
+
+该脚本按当前用户匹配并停止常见 ROS2 launch、Nav2、底盘、雷达、EKF、SLAM、Orbbec、YOLO、目标桥接等进程，最后停止 `ros2 daemon` 并打印剩余匹配进程。它适合在重新启动一键链路前使用。
+
+### 桌面快捷方式
+
+`scripts/*.desktop` 是桌面入口模板。当前文件中可见的入口包括：
+
+| 名称 | Exec 指向 | 用途 |
+| --- | --- | --- |
+| `Kill ROS Launches` | `/home/elf/桌面/kill_ros_launches.sh` | 桌面终端中清理 ROS2 进程。 |
+| `Car RViz` | `/home/ros2/桌面/start_car_rviz.sh` | 在 VM/桌面环境启动车端 RViz。 |
+| `UAV Target Go/No-Go` | `/home/ros2/桌面/start_uav_target_prompt.sh` | 查看 UAV 目标并人工确认是否发送导航目标。 |
+
+这些 `.desktop` 文件的 `Exec` 路径是部署后的桌面路径，不等同于源码路径。迁移到新机器时，需要同步复制脚本并按实际用户目录调整 `Exec`。
 
 ## 传感器和硬件依赖
 
