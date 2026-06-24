@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -41,6 +42,7 @@ class UavTargetBridgeNode(Node):
         self.declare_parameter('tf_timeout_sec', 0.2)
         self.declare_parameter('marker_lifetime_sec', 0.0)
         self.declare_parameter('marker_republish_hz', 1.0)
+        self.declare_parameter('detections_max_publish_hz', 2.0)
         self.declare_parameter('marker_scale', 0.35)
         self.declare_parameter('force_ground_z', True)
         self.declare_parameter('ground_z', 0.0)
@@ -63,6 +65,9 @@ class UavTargetBridgeNode(Node):
         self.tf_timeout_sec = float(self.get_parameter('tf_timeout_sec').value)
         self.marker_lifetime_sec = float(self.get_parameter('marker_lifetime_sec').value)
         self.marker_republish_hz = float(self.get_parameter('marker_republish_hz').value)
+        self.detections_max_publish_hz = float(
+            self.get_parameter('detections_max_publish_hz').value
+        )
         self.marker_scale = float(self.get_parameter('marker_scale').value)
         self.force_ground_z = self._as_bool(self.get_parameter('force_ground_z').value)
         self.ground_z = float(self.get_parameter('ground_z').value)
@@ -79,6 +84,7 @@ class UavTargetBridgeNode(Node):
         self._last_pose_array: Optional[PoseArray] = None
         self._last_markers: Optional[MarkerArray] = None
         self._visited_points: List[Tuple[float, float, float]] = []
+        self._last_detection_publish_time: Optional[float] = None
 
         if self.pose_array_topic:
             self.create_subscription(PoseArray, self.pose_array_topic, self.pose_array_callback, 10)
@@ -100,7 +106,8 @@ class UavTargetBridgeNode(Node):
             f'target_frame={self.target_frame}, class_filter={class_filter_text}, '
             f'min_score={self.min_score:.2f}, max_targets={self.max_targets}, '
             f'reached_goal_topic={self.reached_goal_topic}, '
-            f'marker_republish_hz={self.marker_republish_hz:.2f}'
+            f'marker_republish_hz={self.marker_republish_hz:.2f}, '
+            f'detections_max_publish_hz={self.detections_max_publish_hz:.2f}'
         )
 
     def pose_array_callback(self, msg: PoseArray):
@@ -114,6 +121,15 @@ class UavTargetBridgeNode(Node):
         self._publish_targets([((p.x, p.y, p.z), 'shared_target', 1.0)], source_frame, msg.header.stamp)
 
     def detections_callback(self, msg: Detection3DArray):
+        now = time.monotonic()
+        if not self._publish_due(
+            self._last_detection_publish_time,
+            now,
+            self.detections_max_publish_hz,
+        ):
+            return
+        self._last_detection_publish_time = now
+
         source_frame = msg.header.frame_id or self.target_frame
         targets = []
         for det in msg.detections:
@@ -262,6 +278,12 @@ class UavTargetBridgeNode(Node):
     @staticmethod
     def _point_distance_2d(a: Tuple[float, float, float], b: Tuple[float, float, float]) -> float:
         return math.hypot(a[0] - b[0], a[1] - b[1])
+
+    @staticmethod
+    def _publish_due(last_publish_time: Optional[float], now: float, max_hz: float) -> bool:
+        if last_publish_time is None or max_hz <= 0.0:
+            return True
+        return now - last_publish_time >= (1.0 / max_hz) - 1e-9
 
     def _publish_empty(self, stamp):
         pose_array = PoseArray()
