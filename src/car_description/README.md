@@ -1,224 +1,155 @@
 # car_description
 
-`car_description` 负责当前无人车的车体模型、TF 挂点、RViz 配置以及 Nav2 参数文件，是整车坐标系和可视化/导航参数的基础包。
+`car_description` 维护无人车和 UAV 可视化模型、固定 TF 结构、RViz 配置以及 Nav2 参数文件。
 
-这个包当前主要包含：
-- `urdf/car.urdf.xacro`：整车结构模型
-- `launch/display.launch.py`：单独显示车模与 RViz
-- `rviz/car.rviz`：RViz 默认显示配置
-- `rviz/nav2_params.yaml`：定位与导航参数
+## 主要功能
 
----
+该包不启动底盘、雷达或导航节点。它提供以下基础资源，供 `car_driver` 的 bringup 和 Nav2 启动入口复用：
 
-## 1. 车体模型当前包含什么
+- `urdf/car.urdf.xacro`：无人车车体、轮子、IMU、雷达和相机 frame。
+- `urdf/uav.urdf`：UAV 简化显示模型。
+- `launch/display.launch.py`：单独查看无人车 URDF、TF 和 RViz。
+- `launch/uav_model_display.launch.py`：发布 UAV 模型和可选静态位姿。
+- `rviz/car.rviz`：车端 RViz 显示配置。
+- `rviz/nav2_params*.yaml`：AMCL、Nav2、costmap、controller 等参数文件。
 
-当前模型已经建立了无人车的第一版结构骨架，重点不是卷视觉细节，而是先把**结构关系、传感器挂点和导航所需几何信息**定准。
+## 目录结构
 
-目前模型中已经包含：
-- `base_footprint`
-- `base_link`
-- 四个轮子
-- 四个轮侧下吊支架
-- 上下车体板与立柱
-- `imu_link`
-- `laser_link`
-- 雷达安装立柱
-- `camera_link`
-- `camera_depth_frame`
-- `camera_depth_optical_frame`
-- `camera_color_frame`
-- `camera_color_optical_frame`
+| 路径 | 说明 |
+| --- | --- |
+| `urdf/car.urdf.xacro` | 无人车模型和固定传感器 frame。 |
+| `urdf/uav.urdf` | UAV 简化模型，用于 RViz 显示。 |
+| `launch/display.launch.py` | 启动 `robot_state_publisher`、`joint_state_publisher` 和可选 RViz。 |
+| `launch/uav_model_display.launch.py` | 启动 UAV 的 `robot_state_publisher` 和可选静态 TF。 |
+| `rviz/car.rviz` | 整车常用 RViz 配置。 |
+| `rviz/nav2_params.yaml` | 已知地图 AMCL/Nav2 参数，`odom_topic` 使用 `/odom`。 |
+| `rviz/nav2_params_natural.yaml` | 已知地图自然导航参数，Nav2 `odom_topic` 使用 `/odometry/filtered`。 |
+| `rviz/nav2_params_goal_slam.yaml` | 在线 SLAM 目标导航参数，Nav2 `odom_topic` 使用 `/odometry/filtered`。 |
 
-当前 `base_footprint -> base_link` 采用固定连接，`base_link` 作为车体主参考系，其余轮子、IMU、雷达等挂点都从这里继续展开。
+## 启动入口
 
-推荐理解方式：
+| launch | 作用 |
+| --- | --- |
+| `display.launch.py` | 单独查看无人车模型、TF 和 RViz。 |
+| `uav_model_display.launch.py` | 发布 UAV 模型，可选发布 `uav_map -> uav/base_link` 静态 TF。 |
 
-```text
-odom -> base_footprint -> base_link -> {wheel links, imu_link, laser_link, camera_link}
+单独显示无人车模型：
+
+```bash
+cd /home/elf/car/car_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 launch car_description display.launch.py
 ```
 
-其中：
-- `odom -> base_footprint`：由 `car_driver` 发布
-- `base_footprint -> base_link` 及其余固定结构：由 `robot_state_publisher + URDF` 发布
+显示 UAV 模型：
 
----
-
-## 2. 关键几何参数
-
-当前 `car.urdf.xacro` 中已经显式定义了车体与轮系关键尺寸，便于后续继续按实物修正。
-
-### 车体主体
-- `body_length = 0.280 m`
-- `body_width = 0.150 m`
-- `body_height = 0.049 m`
-
-### 轮系参数
-- `wheel_radius = 0.040 m`
-- `wheel_width = 0.035 m`
-- `wheel_track = 0.212 m`
-- `wheel_base = 0.200 m`
-
-### IMU 挂点
-- `imu_link` 当前挂在 `base_link` 后部附近
-- 参数：
-  - `imu_x = -0.090`
-  - `imu_y = 0.0`
-  - `imu_z = 0.025`
-
-### 雷达挂点
-当前已在模型中定义 `laser_link`，并根据实装情况修正过安装方向与高度。
-
-当前重要事实：
-- 雷达安装在车体上方
-- 实物前后反装时，已通过 yaw 修正方向
-- 当前模型主要保证：
-  - `laser_link` 能正确进入 TF 树
-  - `/scan` 能与车体结构、地图、导航统一到同一套坐标关系里
-
-### 相机挂点
-当前已在模型中定义 Astra Pro 第一版挂点：
-
-- `camera_link`
-- `camera_depth_frame`
-- `camera_depth_optical_frame`
-- `camera_color_frame`
-- `camera_color_optical_frame`
-
-相机当前按车头安装建模，color/depth optical frame 遵循 REP-103 习惯：`z` 向前、`x` 向右、`y` 向下。这个挂点已经能支撑 `target_mapper_node` 从 `camera_color_optical_frame` 通过 TF 转到 `odom` / `map`，但外参仍应按实物继续校准。
-
----
-
-## 3. 为什么这个包重要
-
-这个包不只是“让 RViz 看起来好看一点”。它实际承担了三类基础角色：
-
-### 3.1 TF 坐标骨架
-后续所有模块都依赖它来统一坐标系，包括：
-- 底盘 odom
-- 激光雷达 `/scan`
-- IMU 数据
-- RGB-D 相机与目标落图
-- Nav2 costmap
-
-如果这个包里的结构关系乱了，后面定位、导航、感知全都会一起歪。
-
-### 3.2 导航几何基础
-`nav2_params.yaml` 中的很多配置都默认建立在当前车体几何基础上，例如：
-- `robot_base_frame = base_footprint`
-- footprint 尺寸
-- costmap 的障碍膨胀范围
-- AMCL 的 base frame 设定
-
-### 3.3 后续传感器融合扩展入口
-当前已经有 `imu_link`、`laser_link` 和相机 color/depth frame。后续如果继续调整相机安装，推荐仍在这个包里维护：
-- `base_link -> camera_link`
-- `camera_link -> camera_color_optical_frame`
-- `camera_link -> camera_depth_optical_frame`
-- 相机到车体的固定外参
-
-这样视觉链、导航链、地图链才有机会真正接上，而不是各搞各的。
-
----
-
-## 4. 当前 Nav2 参数文件说明
-
-当前导航参数文件位于：
-
-```text
-src/car_description/rviz/nav2_params.yaml
+```bash
+ros2 launch car_description uav_model_display.launch.py \
+  uav_map_frame:=uav_map \
+  uav_base_frame:=uav/base_link \
+  uav_z:=1.0
 ```
 
-虽然文件名放在 `rviz/` 目录下，但它实际上是**定位 + 导航通用参数文件**，不是单纯的 RViz 配置。
+## TF 和模型
 
-当前主要配置了这些模块：
-- `amcl`
-- `bt_navigator`
-- `controller_server`
-- `planner_server`
-- `local_costmap`
-- `global_costmap`
-- 以及其他 Nav2 相关模块
+`car.urdf.xacro` 中的主链路为：
 
-### 关键配置点
+```text
+base_footprint -> base_link -> sensor links
+```
 
-#### AMCL 坐标与运动模型
-- `base_frame_id = base_footprint`
-- `global_frame_id = map`
-- `odom_frame_id = odom`
-- `scan_topic = scan`
-- `robot_model_type = nav2_amcl::OmniMotionModel`
+主要 link：
 
-这里使用 `OmniMotionModel` 很关键，因为当前底盘是麦轮/全向底盘，不是普通差速车。
+| link | 来源 | 说明 |
+| --- | --- | --- |
+| `base_footprint` | `car.urdf.xacro` | 底盘平面参考 frame。 |
+| `base_link` | `car.urdf.xacro` | 车体主 frame。 |
+| `imu_link` | `car.urdf.xacro` | IMU 固定挂点。 |
+| `laser_link` | `car.urdf.xacro` | RPLidar 固定挂点，当前 yaw 为 `pi`。 |
+| `camera_link` | `car.urdf.xacro` | Astra Pro 相机外壳挂点。 |
+| `camera_depth_frame` / `camera_depth_optical_frame` | `car.urdf.xacro` | depth frame 和 optical frame。 |
+| `camera_color_frame` / `camera_color_optical_frame` | `car.urdf.xacro` | color frame 和 optical frame。 |
 
-#### 局部控制器
-当前局部控制器采用 `DWBLocalPlanner`，并已配置：
-- `max_vel_x`
-- `max_vel_y`
-- `max_vel_theta`
-- `acc_lim_x / y / theta`
-- `decel_lim_x / y / theta`
-- `vx_samples / vy_samples / vtheta_samples`
-- 各类路径与目标评分 critic
+`odom -> base_footprint` 不由本包发布，通常由 `car_driver/base_driver_node` 或 `robot_localization/ekf_node` 发布。
 
-这意味着当前导航链已经显式考虑了横移能力，而不是只按差速车在配。
+## 主要几何参数
 
-#### 代价地图 footprint
-当前 `local_costmap` 和 `global_costmap` 中都配置了 footprint：
+参数直接来自 `urdf/car.urdf.xacro`：
+
+| 参数 | 当前值 | 单位 | 说明 |
+| --- | --- | --- | --- |
+| `body_length` | `0.280` | m | 车体长度。 |
+| `body_width` | `0.150` | m | 车体宽度。 |
+| `body_height` | `0.049` | m | 车体高度。 |
+| `wheel_radius` | `0.040` | m | 轮半径。 |
+| `wheel_width` | `0.035` | m | 轮宽。 |
+| `wheel_track` | `0.212` | m | 左右轮距。 |
+| `wheel_base` | `0.200` | m | 前后轴距。 |
+| `imu_x/y/z` | `-0.090 / 0.0 / 0.025` | m | IMU 相对 `base_link` 的位置。 |
+| `laser_x/y/z` | `0.000 / 0.000 / 0.080` | m | 雷达相对 `base_link` 的位置。 |
+| `camera_x/y/z` | 由 xacro 表达式计算 | m | 相机相对 `base_link` 的位置。 |
+
+## Nav2 参数文件
+
+| 文件 | 主要使用场景 | 关键 frame/topic |
+| --- | --- | --- |
+| `rviz/nav2_params.yaml` | 已知地图 AMCL/Nav2 | `map`、`odom`、`base_footprint`、`/odom`、`/scan` |
+| `rviz/nav2_params_natural.yaml` | `uav_nav_bridge_bringup.launch.py` 默认参数 | `map`、`odom`、`base_footprint`、`/odometry/filtered`、`/scan` |
+| `rviz/nav2_params_goal_slam.yaml` | `goal_slam_nav_bringup.launch.py` 默认参数 | `map`、`odom`、`base_footprint`、`/odometry/filtered`、`/scan` |
+
+三个参数文件都包含 controller、planner、local/global costmap、behavior、velocity smoother 等 Nav2 配置。`nav2_params.yaml` 中 AMCL 使用 `base_frame_id: base_footprint`、`global_frame_id: map`、`odom_frame_id: odom`、`scan_topic: scan`。
+
+当前 costmap footprint 在这些文件中保持为：
 
 ```text
 [[0.17, 0.11], [0.17, -0.11], [-0.17, -0.11], [-0.17, 0.11]]
 ```
 
-这组 footprint 是导航避障和可通行性判断的重要基础，后续如果实车外廓变化明显，需要同步调整。
+## 依赖
 
----
+### ROS2 包依赖
 
-## 5. 常用使用方式
+- `ament_cmake`
+- `robot_state_publisher`
+- `joint_state_publisher`
+- `joint_state_publisher_gui`
+- `tf2_ros`
+- `rviz2`
+- `xacro`
 
-### 5.1 单独显示车模
-只检查 URDF、TF 和 RViz 显示时，可直接启动：
+## 编译
 
 ```bash
 cd /home/elf/car/car_ws
 source /opt/ros/humble/setup.bash
-source /home/elf/car/car_ws/install/setup.bash
-ros2 launch car_description display.launch.py
+colcon build --packages-select car_description
+source install/setup.bash
 ```
 
-### 5.2 作为整车 bringup 的模型来源
-当前 `car_driver` 中多个 launch 都会自动引用本包的：
-- `urdf/car.urdf.xacro`
-- `rviz/car.rviz`
-- `rviz/nav2_params.yaml`
+## 常用检查
 
-例如：
-- `full_bringup.launch.py`
-- `localization_bringup.launch.py`
-- `nav_bringup.launch.py`
+检查 TF：
 
-也就是说，平时你多数时候不会单独启动 `car_description`，而是把它作为整车系统的一部分使用。
+```bash
+ros2 run tf2_ros tf2_echo base_footprint base_link
+ros2 run tf2_ros tf2_echo base_link laser_link
+ros2 run tf2_ros tf2_echo base_link camera_color_optical_frame
+```
 
----
+检查 robot description：
 
-## 6. 后续建议
+```bash
+ros2 param get /robot_state_publisher robot_description
+```
 
-当前这个包已经够支撑底盘、雷达、定位、导航和第一版 RGB-D 目标落图联调，但相机外参仍需要继续按实物校准。
+## 排查
 
-### 6.1 继续校准相机外参
-不要只满足于“能连上 TF”。要把：
-- 前后偏移
-- 左右偏移
-- 高度
-- 俯仰/偏航
+RViz 中没有模型时，先确认 `robot_state_publisher` 是否启动，并检查是否 source 了工作区：
 
-按实物测量后同步写进 URDF / TF 链。
+```bash
+ros2 node list | grep robot_state_publisher
+echo $AMENT_PREFIX_PATH
+```
 
-### 6.2 继续校准 footprint 和传感器高度
-如果后面车体外形或传感器安装位置继续变动，记得同步修：
-- `footprint`
-- `laser_link`
-- `imu_link`
-- `camera_link`
-- color/depth optical frame
-
-别让模型和实物越跑越分家，那会把后面的定位、导航、视觉全带沟里。
+导航中激光或相机位置不对时，先检查本包 URDF 中的固定 frame，再检查对应传感器驱动发布的 `frame_id` 是否一致。

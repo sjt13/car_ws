@@ -1,46 +1,204 @@
-# car_yolo 使用说明（车端检测链）
+# car_yolo
 
-`car_yolo` 是当前无人车侧的视觉检测包，负责在 RK3588 平台上读取车端 RGB 图像，运行 RKNN YOLO11 推理，并将结果以 ROS2 话题形式发布。
+`car_yolo` 维护车端视觉检测、RGB-D 目标落图、UAV 共享目标桥接和 OpenClaw 目标决策相关节点。
 
-当前节点支持两种输入方式：
-- 直接打开本机 `/dev/videoX` 摄像头；
-- 订阅 ROS 图像话题，例如 `/camera/color/image_raw`。
+## 主要功能
 
-先把丑话说前面：**当前 `car_yolo` 已经完成的是“目标检测链”和第一版“目标落图/桥接链”，但还不是标定级语义地图系统。**
+该包当前包含五个可执行节点：
 
-也就是说，现在已经能回答：
-- 图像里有什么目标
-- 目标出现在图像的哪里
-- 置信度大概多少
+- `yolo_detector_node`：读取摄像头或 ROS 图像，运行 RKNN YOLO 推理，发布 2D 检测结果。
+- `target_mapper_node`：订阅 2D 检测、深度图、相机内参和 TF，输出目标点和 RViz marker。
+- `uav_target_bridge_node`：订阅 UAV 侧目标，转换到车端目标 frame 后发布 PoseArray 和 marker。
+- `openclaw_target_decision_node`：对目标点做一次性目标排序/选择，输出决策结果。
+- `openclaw_goal_decision_node`：面向目标驱动导航的决策节点，可结合导航到达状态连续更新任务目标。
 
-当前已经有两条落图入口：
-- 车端 RGB-D：`target_mapper_node` 默认用 depth 做目标落图，也可以切换到 `ground_plane` 模式做地面交点 fallback；
-- 空地协同：`uav_target_bridge_node` 把 `/uav/shared/target_pose` 桥接成车端 `map` 下的 `/uav/target_points_map` 和 `/uav/target_markers`。
+这些节点不负责底盘控制。导航动作由 `car_driver` 的 Nav2/goal-slam 链路处理。
 
----
+## 目录结构
 
-## 1. 功能概述
+| 路径 | 说明 |
+| --- | --- |
+| `car_yolo/yolo_detector_node.py` | RKNN YOLO 推理和检测话题发布。 |
+| `car_yolo/target_mapper_node.py` | 车端 RGB-D 目标落图。 |
+| `car_yolo/uav_target_bridge_node.py` | UAV 目标转换到车端坐标系。 |
+| `car_yolo/openclaw_target_decision_node.py` | OpenClaw 目标选择/排序。 |
+| `car_yolo/openclaw_goal_decision_node.py` | OpenClaw 目标导航决策。 |
+| `launch/yolo_detector.launch.py` | 启动检测节点。 |
+| `launch/target_mapper.launch.py` | 启动车端目标落图节点。 |
+| `launch/uav_target_bridge.launch.py` | 启动 UAV 目标桥接节点。 |
+| `launch/openclaw_target_decision.launch.py` | 启动一次性目标决策节点。 |
+| `launch/openclaw_goal_decision.launch.py` | 启动目标导航决策节点。 |
+| `setup.py` | 注册 5 个 console entry。 |
 
-当前节点可以：
-- 从本机摄像头读取图像，或订阅 ROS 图像话题
-- 在 RK3588 上跑 RKNN 推理
-- 发布标准检测结果 `vision_msgs/Detection2DArray`
-- 发布带框可视化图像 `sensor_msgs/Image`
-- 发布当前推理帧率 `std_msgs/Float32`
-- 发布车端 RGB-D 目标落图结果
-- 发布 UAV 共享目标在车端 `map` 下的目标点和 RViz marker
+## 节点
 
-`target_mapper_node` 订阅检测框、深度图、RGB 相机内参和 TF，输出目标点与 RViz Marker，用于第一版目标落图验证。
+| 节点名称 | 入口 | 主要职责 |
+| --- | --- | --- |
+| `yolo_detector_node` | `car_yolo/yolo_detector_node.py` | 图像输入、RKNN 推理、检测框和标注图发布。 |
+| `target_mapper_node` | `car_yolo/target_mapper_node.py` | 将 `/yolo/detections` 与深度/相机内参/TF 结合，发布目标点。 |
+| `uav_target_bridge_node` | `car_yolo/uav_target_bridge_node.py` | 将 UAV PoseArray、PoseStamped 或 Detection3DArray 转到 `target_frame`。 |
+| `openclaw_target_decision_node` | `car_yolo/openclaw_target_decision_node.py` | 调用 OpenClaw `/v1/responses` 或 fallback 逻辑，选择目标。 |
+| `openclaw_goal_decision_node` | `car_yolo/openclaw_goal_decision_node.py` | 结合目标、marker、导航状态和到达记录，发布任务目标和决策文本。 |
 
-`uav_target_bridge_node` 订阅无人机侧 `/uav/shared/target_pose`，通过 `map -> uav_map` TF 转成车端地图目标，用于 RViz 显示和人工确认导航。
+## 接口
 
----
+### `yolo_detector_node`
 
-## 2. 启动方式
+订阅：
 
-### 2.1 编译
+| 名称 | 类型 | 条件 | 用途 |
+| --- | --- | --- | --- |
+| `image_topic` 参数指定的话题 | `sensor_msgs/msg/Image` | `image_topic` 非空 | 使用 ROS 图像作为输入。 |
 
-在 `car_ws` 下：
+发布：
+
+| 名称 | 类型 | 默认话题 | 用途 |
+| --- | --- | --- | --- |
+| `detections_topic` | `vision_msgs/msg/Detection2DArray` | `/yolo/detections` | 2D 检测框、类别和置信度。 |
+| `annotated_image_topic` | `sensor_msgs/msg/Image` | `/yolo/image_annotated` | 画框后的调试图像。 |
+| `publish_fps_topic` | `std_msgs/msg/Float32` | `/yolo/debug_fps` | 推理帧率。 |
+
+如果 `image_topic` 为空，节点直接打开 `camera_device`，默认 `/dev/video21`。
+
+### `target_mapper_node`
+
+订阅：
+
+| 名称 | 类型 | 默认话题 | 用途 |
+| --- | --- | --- | --- |
+| `detections_topic` | `vision_msgs/msg/Detection2DArray` | `/yolo/detections` | YOLO 2D 检测结果。 |
+| `depth_topic` | `sensor_msgs/msg/Image` | `/camera/depth/image_raw` | 深度图。 |
+| `camera_info_topic` | `sensor_msgs/msg/CameraInfo` | `/camera/color/camera_info` | RGB 相机内参。 |
+| `color_image_topic` | `sensor_msgs/msg/Image` | `/camera/color/image_raw` | 彩色图像，主要用于时间戳/调试关联。 |
+| TF | - | `camera_frame` -> `target_frame` | 将相机系点转换到目标 frame。 |
+
+发布：
+
+| 名称 | 类型 | 默认话题 | 用途 |
+| --- | --- | --- | --- |
+| `points_topic` | `geometry_msgs/msg/PoseArray` | `/yolo/target_points` | 目标点数组。 |
+| `markers_topic` | `visualization_msgs/msg/MarkerArray` | `/yolo/target_markers` | RViz 目标显示。 |
+
+`points_topic` 和 `markers_topic` 是源码中声明的参数；当前 `target_mapper.launch.py` 没有暴露这两个 launch 参数，使用源码默认值。
+
+### `uav_target_bridge_node`
+
+订阅：
+
+| 名称 | 类型 | 默认话题 | 用途 |
+| --- | --- | --- | --- |
+| `pose_array_topic` | `geometry_msgs/msg/PoseArray` | `/uav/target_points` | UAV 目标数组。 |
+| `pose_stamped_topic` | `geometry_msgs/msg/PoseStamped` | `/uav/shared/target_pose` | 单个 UAV 共享目标。 |
+| `detections_topic` | `vision_msgs/msg/Detection3DArray` | `/uav/target_detections` | 3D 检测目标。 |
+| `reached_goal_topic` | `geometry_msgs/msg/PoseStamped` | `/goal_slam_nav/reached_goal` | 已到达目标，用于过滤已访问点。 |
+| TF | - | source frame -> `target_frame` | 坐标转换。 |
+
+发布：
+
+| 名称 | 类型 | 默认话题 | 用途 |
+| --- | --- | --- | --- |
+| `points_topic` | `geometry_msgs/msg/PoseArray` | `/uav/target_points_map` | 转换到 `target_frame` 后的目标点。 |
+| `markers_topic` | `visualization_msgs/msg/MarkerArray` | `/uav/target_markers` | RViz marker。 |
+
+### OpenClaw 决策节点
+
+`openclaw_target_decision_node` 默认订阅 `/uav/target_points_map`，发布：
+
+| 名称 | 类型 | 默认话题 |
+| --- | --- | --- |
+| `selected_goal_topic` | `geometry_msgs/msg/PoseStamped` | `/openclaw/selected_goal` |
+| `target_order_topic` | `geometry_msgs/msg/PoseArray` | `/openclaw/target_order` |
+| `decision_topic` | `std_msgs/msg/String` | `/openclaw/target_decision` |
+| `decision_text_topic` | `std_msgs/msg/String` | `/openclaw/target_decision_text` |
+
+`openclaw_goal_decision_node` 默认订阅 `/uav/target_points_map`、`/uav/target_markers`、`/openclaw_goal/control`、`/goal_slam_nav/reached_goal`、`/goal_slam_nav/status`，发布：
+
+| 名称 | 类型 | 默认话题 |
+| --- | --- | --- |
+| `selected_goal_topic` | `geometry_msgs/msg/PoseStamped` | `/openclaw_goal/selected_goal` |
+| `task_goal_topic` | `geometry_msgs/msg/PoseStamped` | `/uav/task_goal` |
+| `target_order_topic` | `geometry_msgs/msg/PoseArray` | `/openclaw_goal/target_order` |
+| `decision_topic` | `std_msgs/msg/String` | `/openclaw_goal/decision` |
+| `decision_text_topic` | `std_msgs/msg/String` | `/openclaw_goal/decision_text` |
+| `reply_text_topic` | `std_msgs/msg/String` | `/openclaw_goal/reply_text` |
+| `mission_status_topic` | `std_msgs/msg/String` | `/openclaw_goal/mission_status` |
+
+两个 OpenClaw 节点都会向 `openclaw_base_url + /v1/responses` 发送 HTTP 请求；默认 `openclaw_base_url` 为 `http://127.0.0.1:18789`。
+
+## 主要参数
+
+### `yolo_detector_node`
+
+| 参数 | 默认值 | 含义 |
+| --- | --- | --- |
+| `model_path` | `/home/elf/rknn/yolo11/model/yolo11n.rknn` | RKNN 模型路径。 |
+| `target` | `rk3588` | RKNN 运行目标。 |
+| `device_id` | 空 | RKNN 设备 ID。 |
+| `camera_device` | `/dev/video21` | OpenCV 直接打开的相机设备。 |
+| `camera_width` / `camera_height` | `1280` / `720` | 直接打开相机时设置的分辨率。 |
+| `camera_fps` | `30.0` | 相机 FPS。 |
+| `camera_fourcc` | `MJPG` | 相机像素格式。 |
+| `image_topic` | 空 | ROS 图像输入话题；非空时不直接打开相机设备。 |
+| `camera_frame_id` | `camera_color_optical_frame` | 检测消息 frame。 |
+| `timer_hz` | `15.0` | 推理定时器频率。 |
+| `obj_thresh` | `0.25` | 置信度阈值。 |
+
+### `target_mapper_node`
+
+| 参数 | 默认值 | 含义 |
+| --- | --- | --- |
+| `target_frame` | `odom` | 输出目标点 frame。 |
+| `camera_frame` | `camera_color_optical_frame` | 相机光学 frame。 |
+| `projection_mode` | `depth` | 使用深度图；源码也包含 `ground_plane` 分支。 |
+| `sample_point` | `bottom_center` | 从检测框取样的位置。 |
+| `depth_scale` | `0.01` | 深度值转米比例。 |
+| `min_depth_m` / `max_depth_m` | `0.03` / `8.0` | 有效深度范围。 |
+| `depth_source` | `bbox_region` | 深度采样来源。 |
+| `bbox_depth_quantile` | `0.5` | bbox 区域深度统计分位数。 |
+| `class_filter` | `red_ball,red_cube` | 只处理这些类别；空字符串表示不过滤。 |
+| `min_score` | `0.35` | 最低置信度。 |
+| `max_targets` | `1` | 单帧最多输出目标数。 |
+| `smoothing_alpha` | `0.4` | 目标点平滑系数。 |
+
+### `uav_target_bridge_node`
+
+| 参数 | 默认值 | 含义 |
+| --- | --- | --- |
+| `target_frame` | `map` | 输出目标 frame。 |
+| `class_filter` | 空 | 类别过滤。 |
+| `min_score` | `0.0` | 最低置信度。 |
+| `max_targets` | `20` | 最多输出目标数。 |
+| `visited_match_radius_m` | `0.45` | 已到达目标过滤半径。 |
+| `tf_timeout_sec` | `0.2` | TF 查询超时。 |
+| `marker_republish_hz` | `1.0` | marker 重发频率。 |
+| `detections_max_publish_hz` | `2.0` | 3D 检测输入最大处理频率。 |
+| `force_ground_z` | `true` | 是否强制目标 z 为 `ground_z`。 |
+| `ground_z` | `0.0` | 地面 z 值。 |
+
+## 依赖
+
+### ROS2 包依赖
+
+- `rclpy`
+- `sensor_msgs`
+- `std_msgs`
+- `geometry_msgs`
+- `visualization_msgs`
+- `vision_msgs`
+- `cv_bridge`
+- `tf2_ros`
+
+### Python/系统依赖
+
+源码中使用 `cv2`、`numpy`、`urllib` 等模块。`yolo_detector_node` 还依赖 RKNN 运行环境和 RKNN 模型文件；这些依赖不由 `package.xml` 自动安装。
+
+### 硬件依赖
+
+- RK3588/RKNN 运行环境。
+- RGB 相机或 ROS 图像输入。
+- `target_mapper_node` 使用 `depth` 模式时需要深度图和相机内参。
+
+## 编译
 
 ```bash
 cd /home/elf/car/car_ws
@@ -49,17 +207,15 @@ colcon build --packages-select car_yolo
 source install/setup.bash
 ```
 
-### 2.2 启动 YOLO 检测
+## 常用启动
 
-#### 单独验证 YOLO，直接打开摄像头
+直接打开相机跑检测：
 
 ```bash
 ros2 launch car_yolo yolo_detector.launch.py
 ```
 
-#### 和 `orbbec_bringup` 同跑，订阅 RGB 图像话题
-
-这时不要再让 YOLO 直接抢 `/dev/video21`，应订阅 `v4l2_camera` 已发布的 RGB 图像：
+订阅 Orbbec RGB 图像跑检测：
 
 ```bash
 ros2 launch car_yolo yolo_detector.launch.py \
@@ -67,377 +223,96 @@ ros2 launch car_yolo yolo_detector.launch.py \
   camera_frame_id:=camera_color_optical_frame
 ```
 
-### 2.3 启动目标落图 v1
-
-先确保这些基础链路稳定：
-- `ros2 launch car_driver orbbec_bringup.launch.py`
-- `ros2 launch car_yolo yolo_detector.launch.py image_topic:=/camera/color/image_raw camera_frame_id:=camera_color_optical_frame`
-- 车体 TF / 里程计链，例如 `car_description display.launch.py`、`car_driver bringup.launch.py` 或定位/导航 launch。
-
-默认用 depth 模式落到 `odom`：
+启动 RGB-D 目标落图：
 
 ```bash
 ros2 launch car_yolo target_mapper.launch.py
 ```
 
-如果 RGB-depth 配准短期不稳，可以切到地面交点模式：
-
-```bash
-ros2 launch car_yolo target_mapper.launch.py projection_mode:=ground_plane
-```
-
-如果只想先排除 `odom` 链路影响，可临时落到 `base_link`：
-
-```bash
-ros2 launch car_yolo target_mapper.launch.py target_frame:=base_link
-```
-
-### 2.4 常用可改参数
-
-```bash
-ros2 launch car_yolo yolo_detector.launch.py \
-  camera_device:=/dev/video21 \
-  image_topic:=/camera/color/image_raw \
-  camera_frame_id:=camera_color_optical_frame \
-  model_path:=/home/elf/rknn/yolo11/model/yolo11n.rknn \
-  target:=rk3588 \
-  timer_hz:=15.0
-```
-
-参数说明：
-- `model_path`：RKNN 模型路径
-- `target`：推理目标平台，当前默认 `rk3588`
-- `device_id`：RKNN 设备 ID，一般留空
-- `camera_device`：摄像头设备节点，例如 `/dev/video21`；仅在 `image_topic` 为空时使用
-- `image_topic`：ROS 图像输入话题；设置后 YOLO 不再直接打开 `/dev/video21`
-- `camera_frame_id`：检测结果所属坐标系，当前默认 `camera_color_optical_frame`
-- `timer_hz`：节点处理频率，默认 `15 Hz`
-
-### 2.5 启动 UAV 目标桥接
-
-如果只启动桥接节点：
+UAV 目标桥接：
 
 ```bash
 ros2 launch car_yolo uav_target_bridge.launch.py
 ```
 
-更常用的是通过车端一键链路启动 Nav2、静态 TF 和桥接节点：
+已知地图导航链中更常用的启动方式：
 
 ```bash
 ros2 launch car_driver uav_nav_bridge_bringup.launch.py
 ```
 
-当前默认订阅：
-- `/uav/shared/target_pose`
-
-当前默认输出：
-- `/uav/target_points_map`
-- `/uav/target_markers`
-
----
-
-## 3. 当前输出话题
-
-### 3.1 `/yolo/detections`
-- **消息类型：** `vision_msgs/msg/Detection2DArray`
-- **作用：** 发布当前这一帧的所有检测框
-- **这是后续做目标定位时最核心的话题**
-
-查看方式：
+目标驱动在线 SLAM 中更常用的启动方式：
 
 ```bash
-ros2 topic echo /yolo/detections
+ros2 launch car_driver goal_slam_nav_bringup.launch.py
 ```
 
-每个检测当前主要包含：
-- `header.stamp`：检测时间戳
-- `header.frame_id`：检测所属坐标系，默认 `camera_color_optical_frame`
-- `id`：当前帧内临时编号，不是跨帧跟踪 ID
-- `bbox.center.position.x / y`：检测框中心像素坐标
-- `bbox.size_x / size_y`：检测框宽高（像素）
-- `results[0].hypothesis.class_id`：类别名，例如 `red_ball` / `red_cube`
-- `results[0].hypothesis.score`：置信度
-
-### 3.2 `/yolo/image_annotated`
-- **消息类型：** `sensor_msgs/msg/Image`
-- **作用：** 发布带检测框和类别标注的图像
-- **用途：** 主要用于调试和可视化
-
-查看方式：
+OpenClaw 目标导航决策单独启动：
 
 ```bash
+ros2 launch car_yolo openclaw_goal_decision.launch.py
+```
+
+## 常用检查
+
+检测输出：
+
+```bash
+ros2 topic echo /yolo/detections --once
+ros2 topic echo /yolo/debug_fps
 rqt_image_view /yolo/image_annotated
 ```
 
-### 3.3 `/yolo/debug_fps`
-- **消息类型：** `std_msgs/msg/Float32`
-- **作用：** 当前推理帧率
-- **用途：** 调试性能和实时性
-
-查看方式：
+目标落图：
 
 ```bash
-ros2 topic echo /yolo/debug_fps
+ros2 topic echo /yolo/target_points --once
+ros2 topic echo /yolo/target_markers --once
+ros2 run tf2_ros tf2_echo odom camera_color_optical_frame
 ```
 
-### 3.4 `/yolo/target_points`
-- **消息类型：** `geometry_msgs/msg/PoseArray`
-- **作用：** `target_mapper_node` 输出的目标点数组
-- **默认坐标系：** `odom`
-
-查看方式：
-
-```bash
-ros2 topic echo /yolo/target_points
-```
-
-### 3.5 `/yolo/target_markers`
-- **消息类型：** `visualization_msgs/msg/MarkerArray`
-- **作用：** 给 RViz 显示目标球和文字标签
-
-查看方式：
-
-```bash
-ros2 topic echo /yolo/target_markers
-```
-
-### 3.6 `/uav/target_points_map`
-- **消息类型：** `geometry_msgs/msg/PoseArray`
-- **作用：** `uav_target_bridge_node` 输出的无人机目标点数组
-- **默认坐标系：** `map`
-
-查看方式：
+UAV 桥接：
 
 ```bash
 ros2 topic echo /uav/target_points_map --once
-```
-
-### 3.7 `/uav/target_markers`
-- **消息类型：** `visualization_msgs/msg/MarkerArray`
-- **作用：** 给 RViz 显示无人机共享目标球和文字标签
-
-查看方式：
-
-```bash
 ros2 topic echo /uav/target_markers --once
+ros2 run tf2_ros tf2_echo map uav_map
 ```
 
----
-
-## 4. 当前输入方式与限制
-
-### 4.1 当前输入方式
-`yolo_detector_node` 支持两种输入方式：
-
-1. `image_topic` 为空时，直接打开本机 `/dev/videoX` 摄像头设备；
-2. `image_topic` 非空时，订阅 ROS 图像话题。
-
-与 Astra Pro RGB-D 链路同跑时，推荐使用：
+OpenClaw 目标决策：
 
 ```bash
-image_topic:=/camera/color/image_raw
+ros2 topic echo /openclaw_goal/decision_text
+ros2 topic echo /openclaw_goal/mission_status
 ```
 
-这样 `v4l2_camera` 负责独占 `/dev/video21`，YOLO 只消费 ROS 图像，避免重复抢设备。
+## 排查
 
-### 4.2 当前限制
-当前版本仍有这些限制：
+### 检测节点无法打开相机
 
-1. **目标落图 v1 仍是工程验证版，不是标定级定位**
-2. **没有稳定跨帧跟踪 ID**，`detection.id` 只是单帧编号
-3. **没有输出目标速度、朝向、空间尺寸估计**
-4. **Astra Pro 当前 RGB 与 depth 是拆分链路，未做严格 RGB-depth 配准**
-5. **depth 模式依赖 RGB-depth 对齐质量；不稳时先切 `projection_mode:=ground_plane`**
-6. **UAV 目标桥接依赖 `map -> uav_map` 对齐精度；当前默认值只是现场粗对齐**
-7. **导航到目标仍采用人工确认后调用 `/navigate_to_pose` action，不做自动决策**
-
-所以它现在的准确定位是：
-
-> **检测链、车端 RGB-D 落图 v1、UAV 目标桥接到车端 map 都已打通；下一步重点是校准 RGB-depth、相机外参和 `map -> uav_map`。**
-
----
-
-## 5. 与整车导航 / 坐标系的衔接关系
-
-这部分是最容易被说糊的，我直接给你写明白。
-
-### 5.1 现在已经接上的部分
-当前整车侧已经有：
-- `/odometry/filtered`
-- `odom -> base_footprint`
-- `base_footprint -> base_link`
-- `laser_link`
-- Nav2 的 `map / odom / base_footprint` 定位导航链
-
-而 `car_yolo` 当前提供的是：
-- 检测时间戳
-- `camera_frame_id`
-- 图像里的 2D 框
-- 类别与置信度
-- RGB-D 落图结果 `/yolo/target_points`
-- UAV 共享目标桥接结果 `/uav/target_points_map`
-
-也就是说，视觉链已经能产出工程验证级目标点；但这些点的精度仍由相机标定、RGB-depth 对齐、TF 外参和 UAV 地图对齐共同决定。
-
-### 5.2 后续还要校准什么
-如果后续要把视觉检测结果稳定用于导航和任务决策，至少还需要继续校准下面这些条件：
-
-#### 1）相机外参
-需要在整车 TF 树中明确：
-- `base_link -> camera_link`
-- 必要时再补 `camera_optical_frame`
-
-当前 URDF 已有第一版相机挂点，但仍需要按实物继续校准。
-
-#### 2）相机内参
-需要知道：
-- 焦距 `fx, fy`
-- 主点 `cx, cy`
-- 畸变参数
-
-当前已先接入出厂 RGB 内参配置；后续最好用实物标定结果替换或验证。
-
-#### 3）距离来源
-只靠一个 2D 框，通常没法唯一确定目标 3D 位置。
-
-后续至少要有一种距离信息来源：
-- 深度相机 / RGB-D
-- 与激光雷达或点云做关联
-- 已知目标尺寸的单目估距
-- 默认目标位于地面平面的几何求交
-
-#### 4）检测时刻的载体位姿
-还需要拿检测消息时间戳，到 TF/位姿缓存里取对应时刻的：
-- `odom -> base_link`
-- 或 `map -> base_link`
-
-别拿“当前时刻姿态”去对“几百毫秒前的检测框”，那种做法会把目标点甩得很离谱。
-
-#### 5）UAV 地图对齐
-空地协同时需要维护：
-- `map -> uav_map`
-
-当前车端一键链路会发布这条静态 TF，默认粗对齐为：
-- `x=-0.78`
-- `y=-0.61`
-- `yaw=0.0`
-
-后续如果起飞点、车端建图原点或朝向变化，要重新校准这组参数。
-
----
-
-## 6. 推荐的后续落图流程
-
-如果后面要继续扩展，我建议按下面流程做，而不是拍脑袋硬算。
-
-### 步骤 1：从检测框得到目标视线
-输入：
-- `/yolo/detections`
-- 相机内参
-
-处理：
-- 取检测框中心或底边中点像素
-- 反投影成相机坐标系下一条视线方向
-
-### 步骤 2：补距离，得到相机系 3D 点
-可选方案：
-- 深度相机
-- 雷达/点云关联
-- 地面平面求交
-- 已知尺寸单目估距
-
-输出：
-- `camera_link` 下的目标三维点
-
-### 步骤 3：变换到车体系
-利用相机外参：
-
-```text
-P_base = T_base_camera * P_camera
-```
-
-### 步骤 4：再变换到 `odom` 或 `map`
-利用检测时刻的车体位姿：
-
-```text
-P_odom = T_odom_base * P_base
-```
-或
-```text
-P_map = T_map_base * P_base
-```
-
-### 步骤 5：做多帧融合
-单帧检测不稳，后续建议至少做：
-- 时间窗聚类
-- 多帧平均/滤波
-- 置信度门限
-- 重复观测去重
-
-不然地图上会长出一堆“目标星云”，看着热闹，实际没法用。
-
----
-
-## 7. 当前最实用的工程建议
-
-如果后续要尽快让视觉链和导航链接起来，我建议优先做这几步：
-
-### 7.1 继续校准 `car_description` 里的相机挂点
-`camera_link` 和 color/depth optical frame 已经写进 URDF / TF，后续重点是按实物修正安装偏移和角度。
-
-### 7.2 再补相机标定信息
-至少把：
-- 相机内参
-- 畸变参数
-- 相机外参
-
-沉淀成固定配置，而不是临时靠人记。
-
-### 7.3 第一阶段优先做“地面目标落点”
-如果比赛目标默认在地面上，优先考虑：
-- 用检测框底边中点作为近似接地点
-- 视线与地面平面求交
-- 转到 `odom/map`
-
-这条路比一上来做复杂三维融合更省时间，也更适合先把链路跑通。
-
-### 7.4 UAV 目标优先走人工确认
-当前推荐流程是：
+如果同时运行 `orbbec_bringup.launch.py`，RGB 设备可能已由 `v4l2_camera` 占用。此时让 YOLO 订阅 ROS 图像：
 
 ```bash
-ros2 topic echo /uav/target_points_map --once
+ros2 launch car_yolo yolo_detector.launch.py image_topic:=/camera/color/image_raw
 ```
 
-确认目标点后，通过 Nav2 action 导航：
+### `target_mapper_node` 没有目标点
+
+按顺序检查：
 
 ```bash
-ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{
-  pose: {
-    header: {frame_id: map},
-    pose: {
-      position: {x: 目标x, y: 目标y, z: 0.0},
-      orientation: {z: 0.0, w: 1.0}
-    }
-  }
-}" --feedback
+ros2 topic echo /yolo/detections --once
+ros2 topic echo /camera/depth/image_raw --once
+ros2 topic echo /camera/color/camera_info --once
+ros2 run tf2_ros tf2_echo odom camera_color_optical_frame
 ```
 
-虚拟机桌面也有 `UAV Target Go/No-Go` 入口，可以查看当前 UAV 目标并手动选择是否导航。
+还需要确认 `class_filter` 和 `min_score` 没有过滤掉当前检测结果。
 
----
+### UAV 目标无法转换到 `map`
 
-## 8. 相关包协作关系
+检查输入消息的 `header.frame_id`，以及该 frame 到 `map` 是否存在 TF。已知地图桥接链通常依赖 `map -> uav_map` 静态 TF。
 
-当前和 `car_yolo` 最直接相关的包有：
+### OpenClaw 请求失败
 
-- `car_description`
-  - 负责整车 TF、后续相机挂点、车体坐标框架
-- `car_driver`
-  - 提供 `/wheel/odom`、`/odometry/filtered`、`odom -> base_footprint` 等底层位姿链
-- `rplidar_ros`
-  - 可作为后续视觉-激光关联的距离来源之一
-- `nav2`
-  - 提供 `map / odom / base` 导航定位主链
-
-所以 `car_yolo` 当前不是孤立包，它已经处在整车系统里，只是**它和地图坐标之间那一段融合逻辑还没补完**。
-`uav_target_bridge_node` 则把无人机侧共享目标接进车端 `map`，目前已经能用于 RViz 显示和人工确认导航。
+先检查本机 OpenClaw gateway 是否在 `openclaw_base_url` 对应地址提供 `/v1/responses`。如果请求失败且 `fallback_on_error:=true`，节点会走源码中的 fallback 选择逻辑；是否自动发布任务目标还受 `send_goal_on_fallback`、`multi_goal_auto`、`continuous_auto` 等参数影响。

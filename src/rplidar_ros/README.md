@@ -1,183 +1,186 @@
-# SLAMTEC LIDAR ROS2 Package
+# rplidar_ros
 
-ROS2 node for SLAMTEC LIDAR
+`rplidar_ros` 是 Slamtec RPLidar 的 ROS2 驱动包，当前仓库把它作为第三方雷达驱动使用。
 
-Visit following Website for more details about SLAMTEC LIDAR:
+## 主要功能
 
-SLAMTEC LIDAR roswiki: <http://wiki.ros.org/rplidar>
+- 连接串口、TCP 或 UDP 形式的 RPLidar/SLLidar 设备。
+- 通过 Slamtec SDK 读取扫描点。
+- 发布 `sensor_msgs/msg/LaserScan`，默认话题为 `scan`。
+- 提供 `start_motor` 和 `stop_motor` 服务。
+- 提供多个型号的 launch 文件，以及带 RViz 的 `view_*` launch。
 
-SLAMTEC LIDAR HomePage: <http://www.slamtec.com/en/Lidar>
+在当前无人车系统中，它主要作为 `/scan` 来源，被 `car_driver` 的定位、导航和 SLAM launch 使用。
 
-SLAMTEC LIDAR SDK: <https://github.com/Slamtec/rplidar_sdk>
+## 目录结构
 
-SLAMTEC LIDAR Tutorial: <https://github.com/robopeak/rplidar_ros/wiki>
+| 路径 | 说明 |
+| --- | --- |
+| `src/rplidar_node.cpp` | 主驱动节点，连接设备并发布 LaserScan。 |
+| `src/rplidar_client.cpp` | 简单订阅 `scan` 并打印数据的测试客户端。 |
+| `sdk/` | Slamtec SDK 源码。 |
+| `launch/` | 各型号 RPLidar/SLLidar 启动文件。 |
+| `rviz/rplidar_ros.rviz` | 雷达显示 RViz 配置。 |
 
-## Supported SLAMTEC LIDAR
+## 节点
 
-| Lidar Model |
-| ---------------------- |
-|RPLIDAR A1              |
-|RPLIDAR A2              |
-|RPLIDAR A3              |
-|RPLIDAR S1              |
-|RPLIDAR S2              |
-|RPLIDAR S2E             |
-|RPLIDAR S3              |
-|RPLIDAR T1              |
-|RPLIDAR C1              |
+| 节点名称 | 可执行文件 | 主要职责 |
+| --- | --- | --- |
+| `rplidar_node` | `rplidar_node` | 连接雷达并发布 LaserScan。 |
+| `rplidar_client` | `rplidar_client` | 订阅 `scan` 并打印角度/距离，用于测试。 |
+| `rplidar_composition` | `rplidar_composition` | 使用同一驱动源码编译的组合版本入口。 |
 
-## How to install ROS2
+## 接口
 
-[rolling](https://docs.ros.org/en/rolling/Installation.html),
-[humble](https://docs.ros.org/en/humble/Installation.html),
-[galactic](https://docs.ros.org/en/galactic/Installation.html),
-[foxy](https://docs.ros.org/en/foxy/Installation.html)
+### 发布话题
 
-## How to configuring your ROS 2 environment
+| 名称 | 类型 | 用途 |
+| --- | --- | --- |
+| `scan` | `sensor_msgs/msg/LaserScan` | 雷达扫描数据。可通过 `topic_name` 参数改名。 |
 
-[Configuring your ROS 2 environment](https://docs.ros.org/en/foxy/Tutorials/Configuring-ROS2-Environment.html)
+### 服务
 
-## How to Create a ROS2 workspace
+| 名称 | 类型 | 用途 |
+| --- | --- | --- |
+| `start_motor` | `std_srvs/srv/Empty` | 启动雷达电机。 |
+| `stop_motor` | `std_srvs/srv/Empty` | 停止雷达电机。 |
 
-[ROS2 Tutorials Creating a workspace](https://docs.ros.org/en/foxy/Tutorials/Workspace/Creating-A-Workspace.html)
+如果 `auto_standby` 为 true，源码会忽略手动启停电机请求。
 
-1. example, choose the directory name ros2_ws, for "development workspace" :
+## 主要参数
 
-   ```bash
-   mkdir -p ~/ros2_ws/src
-   cd ~/ros2_ws/src
-   ```
+`rplidar_node.cpp` 中声明的参数：
 
-## Compile & Install rplidar_ros package
+| 参数 | 源码默认值 | 含义 |
+| --- | --- | --- |
+| `channel_type` | `serial` | 连接方式，可为 serial/tcp/udp。 |
+| `serial_port` | `/dev/ttyUSB0` | 串口设备。 |
+| `serial_baudrate` | `1000000` | 串口波特率。 |
+| `tcp_ip` | `192.168.0.7` | TCP 雷达 IP。 |
+| `tcp_port` | `20108` | TCP 端口。 |
+| `udp_ip` | `192.168.11.2` | UDP 雷达 IP。 |
+| `udp_port` | `8089` | UDP 端口。 |
+| `frame_id` | `laser_frame` | LaserScan frame。 |
+| `inverted` | `false` | 是否反转扫描数据。 |
+| `angle_compensate` | `false` | 是否做角度补偿。 |
+| `flip_x_axis` | `false` | 是否翻转 X 轴。 |
+| `auto_standby` | `false` | 是否自动待机。 |
+| `topic_name` | `scan` | 发布话题名。 |
+| `scan_mode` | 空 | 指定扫描模式；空值时使用典型扫描模式。 |
+| `scan_frequency` | serial 默认 `10.0`，udp 默认 `20.0` | 扫描频率。 |
 
-1. Clone rplidar_ros package from github
+当前 `car_driver/full_bringup.launch.py` 和 `lidar_bringup.launch.py` 覆盖的常用值：
 
-   Ensure you're still in the ros2_ws/src directory before you clone:
+| 参数 | 当前车端默认值 |
+| --- | --- |
+| `channel_type` | `serial` |
+| `serial_port` | `/dev/ttyUSB0` |
+| `serial_baudrate` | `460800` |
+| `frame_id` | `laser_link` |
+| `inverted` | `false` |
+| `angle_compensate` | `true` |
+| `scan_mode` | `Standard` |
 
-   ```bash
-   git clone -b ros2 https://github.com/Slamtec/rplidar_ros.git
-   ```
+## Launch 文件
 
-2. Build rpidar_ros package
+`launch/` 下按型号提供启动文件，例如：
 
-   From the root of your workspace (ros2_ws), you can now build rplidar_ros package using the command:
+- `rplidar_a1_launch.py`
+- `rplidar_a2m7_launch.py`
+- `rplidar_a2m8_launch.py`
+- `rplidar_a2m12_launch.py`
+- `rplidar_a3_launch.py`
+- `rplidar_c1_launch.py`
+- `rplidar_s1_launch.py`
+- `rplidar_s2_launch.py`
+- `rplidar_s2e_launch.py`
+- `rplidar_s3_launch.py`
+- `rplidar_t1_launch.py`
 
-   ```bash
-   cd ~/ros2_ws/
-   source /opt/ros/<rosdistro>/setup.bash
-   colcon build --symlink-install
-   ```
+对应的 `view_*` 文件会额外启动 RViz。
 
-   if you find output like "colcon:command not found",you need separate [install colcon](https://docs.ros.org/en/foxy/Tutorials/Colcon-Tutorial.html#install-colcon) build tools.
-
-3. Package environment setup
-
-    ```bash
-    source ./install/setup.bash
-    ```
-
-    Note: Add permanent workspace environment variables.
-    It's convenientif the ROS2 environment variables are automatically added to your bash session every time a new shell is launched:
-
-    ```bash
-    $echo "source <your_own_ros2_ws>/install/setup.bash" >> ~/.bashrc
-    $source ~/.bashrc
-    ```
-
-4. Create udev rules for rplidar
-
-   rplidar_ros running requires the read and write permissions of the serial device.
-   You can manually modify it with the following command:
-
-   ```bash
-   sudo chmod 777 /dev/ttyUSB0
-   ```
-
-   But a better way is to create a udev rule:
-
-   ```bash
-   cd src/rpldiar_ros/
-   source scripts/create_udev_rules.sh
-   ```
-
-## Run rplidar_ros
-
-### Run rplidar node and view in the rviz
-
-The command for RPLIDAR A1 is :
+当前无人车更常用 `car_driver` 的包装入口：
 
 ```bash
-ros2 launch rplidar_ros view_rplidar_a1_launch.py
+ros2 launch car_driver lidar_bringup.launch.py serial_port:=/dev/ttyUSB0
 ```
 
-The command for RPLIDAR A2M7 is :
+或在整车基础链中启动：
 
 ```bash
-ros2 launch rplidar_ros view_rplidar_a2m7_launch.py
+ros2 launch car_driver full_bringup.launch.py lidar_port:=/dev/ttyUSB0
 ```
 
-The command for RPLIDAR A2M8 is :
+## 依赖
+
+### ROS2 包依赖
+
+- `ament_cmake`
+- `rclcpp`
+- `sensor_msgs`
+- `std_srvs`
+- `rclcpp_components`
+
+### 硬件依赖
+
+- Slamtec RPLidar/SLLidar 设备。
+- 串口或网络连接。
+- Linux 下可访问的设备节点，例如 `/dev/ttyUSB0`。
+
+## 编译
 
 ```bash
-ros2 launch rplidar_ros view_rplidar_a2m8_launch.py
+cd /home/elf/car/car_ws
+source /opt/ros/humble/setup.bash
+colcon build --packages-select rplidar_ros
+source install/setup.bash
 ```
 
-The command for RPLIDAR A2M12 is :
+## 常用指令
+
+单独启动当前车端常用链路：
 
 ```bash
-ros2 launch rplidar_ros view_rplidar_a2m12_launch.py
+ros2 launch car_driver lidar_bringup.launch.py \
+  serial_port:=/dev/ttyUSB0 \
+  serial_baudrate:=460800 \
+  frame_id:=laser_link
 ```
 
-The command for RPLIDAR A3 is :
+直接启动某型号 launch：
 
 ```bash
-ros2 launch rplidar_ros view_rplidar_a3_launch.py
+ros2 launch rplidar_ros rplidar_c1_launch.py serial_port:=/dev/ttyUSB0
 ```
 
-The command for RPLIDAR S1 is :
+查看扫描：
 
 ```bash
-ros2 launch rplidar_ros view_rplidar_s1_launch.py
+ros2 topic echo /scan --once
 ```
 
-The command for RPLIDAR S1(TCP connection) is :
+停止/启动电机：
 
 ```bash
-ros2 launch rplidar_ros view_rplidar_s1_tcp_launch.py
+ros2 service call /stop_motor std_srvs/srv/Empty {}
+ros2 service call /start_motor std_srvs/srv/Empty {}
 ```
 
-The command for RPLIDAR S2 is :
+## 排查
+
+没有 `/scan`：
 
 ```bash
-ros2 launch rplidar_ros view_rplidar_s2_launch.py
+ros2 node list | grep rplidar
+ros2 topic list | grep scan
+ls /dev/ttyUSB*
+dmesg | tail -n 50
 ```
 
-The command for RPLIDAR S2E is :
+`frame_id` 不对：
 
-```bash
-ros2 launch rplidar_ros view_rplidar_s2e_launch.py
-```
+检查启动参数是否使用了当前车体模型中的 `laser_link`。Nav2、AMCL 和 SLAM 参数文件默认围绕 `/scan` 和车体 TF 使用，frame 不一致会影响定位和建图。
 
-The command for RPLIDAR S3 is :
+串口连接失败：
 
-```bash
-ros2 launch rplidar_ros view_rplidar_s3_launch.py
-```
-
-The command for RPLIDAR T1 is :
-
-```bash
-ros2 launch rplidar_ros view_rplidar_t1_launch.py
-```
-
-The command for RPLIDAR C1 is :
-
-```bash
-ros2 launch rplidar_ros view_rplidar_c1_launch.py
-```
-
-Notice: different lidar use different serial_baudrate.
-
-## RPLIDAR frame
-
-RPLIDAR frame must be broadcasted according to picture shown in rplidar-frame.png
+确认设备节点、权限和波特率。当前车端 bringup 使用 `460800`，而驱动源码默认 `1000000`，不要只按源码默认值排查。

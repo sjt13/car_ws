@@ -1,463 +1,212 @@
 # car_ws
 
-`car_ws` 是当前空地协同项目中**无人车侧 ROS2 工作区**，主要承载底盘驱动、车体模型、激光雷达接入、定位导航、车端视觉检测、RGB-D 目标落图以及无人机目标桥接。
+`car_ws` 是无人车侧 ROS2 Humble 工作区，包含底盘串口驱动、车体模型、雷达接入、定位导航、RGB-D 目标落图和 UAV 共享目标桥接相关代码。
 
-当前默认 ROS 版本：`humble`
-
-这个工作区的目标不是做零散单节点实验，而是逐步形成一套能用于实车联调的完整车端系统。
-
----
-
-## 1. 工作区当前包含哪些核心包
-
-```text
-car_ws/
-├── src/
-│   ├── car_description/   # 车体模型、TF 挂点、RViz 配置、Nav2 参数
-│   ├── car_driver/        # 底盘驱动、串口通信、odom/TF 发布、整车 bringup
-│   ├── car_teleop/        # 手柄转 /cmd_vel
-│   ├── car_yolo/          # RKNN YOLO11 检测、车端目标落图、UAV 目标桥接
-│   ├── orbbec_camera*/    # Orbbec RGB-D 驱动及消息/模型包
-│   └── rplidar_ros/       # RPLidar ROS2 驱动
-├── build/
-├── install/
-└── log/
-```
-
-各包职责可以简单理解为：
-
-- `car_driver`：负责“车怎么动”
-- `car_description`：负责“车长什么样、TF 怎么挂”
-- `rplidar_ros`：负责“雷达怎么接进来”
-- `car_teleop`：负责“手柄怎么变成 `/cmd_vel`”
-- `car_yolo`：负责“车端怎么做目标检测、目标落图和无人机目标桥接”
-
----
-
-## 2. 环境初始化
-
-进入工作区后，先做环境初始化：
-
-```bash
-cd /home/elf/car/car_ws
-source /opt/ros/humble/setup.bash
-```
-
-如果已经编译过，还要继续 source 工作区环境：
-
-```bash
-source /home/elf/car/car_ws/install/setup.bash
-```
-
-推荐日常顺序：
-
-```bash
-cd /home/elf/car/car_ws
-source /opt/ros/humble/setup.bash
-source /home/elf/car/car_ws/install/setup.bash
-```
-
-别再写那种 `source /opt/ros/*/setup.bash` 的懒狗命令了，后面踩坑只会回旋镖打自己。
-
----
-
-## 3. 编译方式
-
-### 全量编译
-
-```bash
-cd /home/elf/car/car_ws
-source /opt/ros/humble/setup.bash
-colcon build
-```
-
-### 编译核心自有包
-
-```bash
-cd /home/elf/car/car_ws
-source /opt/ros/humble/setup.bash
-colcon build --packages-select car_driver car_description car_teleop car_yolo
-```
-
-### 单独编译某个包
-
-例如只编译 `car_yolo`：
-
-```bash
-cd /home/elf/car/car_ws
-source /opt/ros/humble/setup.bash
-colcon build --packages-select car_yolo
-```
-
-编译完成后记得：
-
-```bash
-source /home/elf/car/car_ws/install/setup.bash
-```
-
----
-
-## 4. 当前系统的基础坐标关系
-
-当前推荐 TF 主链为：
-
-```text
-odom -> base_footprint -> base_link
-```
-
-其中：
-- `car_driver` 负责发布 `odom -> base_footprint`
-- `robot_state_publisher + car_description` 负责发布 `base_footprint -> base_link` 及各传感器挂点
-
-当前模型中已经包含：
-- `imu_link`
-- `laser_link`
-- `camera_link`
-- `camera_depth_frame` / `camera_depth_optical_frame`
-- `camera_color_frame` / `camera_color_optical_frame`
-
-当前空地协同桥接使用：
-
-```text
-map -> uav_map -> UAV 侧目标点
-```
-
-`map -> uav_map` 由车端静态 TF 发布，默认参数在 `car_driver/uav_nav_bridge_bringup.launch.py` 中维护。
-
----
-
-## 5. 最常用的几个启动入口
-
-当前最常用的整车 launch 都在 `car_driver` 包里。
-
-### 5.1 基础整车 bringup
-用于底盘 + 雷达 + 可选手柄 + 可选 RViz 联调：
-
-```bash
-ros2 launch car_driver full_bringup.launch.py
-```
-
-常见覆盖方式：
-
-```bash
-ros2 launch car_driver full_bringup.launch.py \
-  base_port:=/dev/ttyS9 \
-  lidar_port:=/dev/ttyUSB0 \
-  use_joy:=true
-```
-
-适合：
-- 底盘串口联调
-- 雷达是否正常出 `/scan`
-- TF / 车模检查
-- 手柄遥控测试
-
-### 5.2 定位 bringup
-用于底盘 + 雷达 + 地图 + AMCL 定位：
-
-```bash
-ros2 launch car_driver localization_bringup.launch.py \
-  map:=/home/elf/maps/car_map_v1.yaml
-```
-
-适合：
-- 地图加载验证
-- AMCL 定位测试
-- 检查 `/map`、`/scan`、`/odom` 是否协同正常
-- 在 RViz 中设置初始位姿
-
-### 5.3 导航 bringup
-用于底盘 + 雷达 + 定位 + Nav2 导航：
-
-```bash
-ros2 launch car_driver nav_bringup.launch.py \
-  map:=/home/elf/maps/car_map_v1.yaml
-```
-
-适合：
-- 目标点导航
-- planner / controller 联调
-- 全局路径和局部路径观察
-- 避障与导航参数测试
-
-> 三个 launch 的完整参数、常用参数和常用命令速查，请直接看：
->
-> `src/car_driver/README.md`
-
-### 5.4 空地协同目标桥接一键启动
-用于同时启动车端 Nav2、`map -> uav_map` 对齐 TF 和无人机目标桥接：
-
-```bash
-ros2 launch car_driver uav_nav_bridge_bringup.launch.py
-```
-
-当前默认使用：
-- 地图：`/home/elf/car/car_ws/maps/214map.yaml`
-- `map -> uav_map`：`x=-0.78, y=-0.61, z=0.0, yaw=0.0`
-- UAV 输入：`/uav/shared/target_pose`
-- 车端输出：`/uav/target_points_map`、`/uav/target_markers`
-
-如果要临时校准对齐参数：
-
-```bash
-ros2 launch car_driver uav_nav_bridge_bringup.launch.py \
-  uav_map_x:=-0.78 \
-  uav_map_y:=-0.61 \
-  uav_map_yaw:=0.0
-```
-
----
-
-## 6. 车体模型与 RViz 显示
-
-如果只是想单独检查 URDF、TF 和 RViz 显示，不必起整车链路，直接启动：
-
-```bash
-cd /home/elf/car/car_ws
-source /opt/ros/humble/setup.bash
-source /home/elf/car/car_ws/install/setup.bash
-ros2 launch car_description display.launch.py
-```
-
-当前 `car_description` 已包含：
-- 车体主体结构
-- 四个轮子
-- IMU 挂点
-- 激光雷达挂点
-- Astra Pro 相机挂点与 color/depth optical frame
-- Nav2 参数文件
-
-更详细的模型与参数说明见：
-
-- `src/car_description/README.md`
-
----
-
-## 7. 手柄控制
-
-当前手柄控制由两部分组成：
-- `joy` 包的 `joy_node`
-- `car_teleop` 的 `joy_to_cmdvel_node`
-
-如果不想通过总 bringup 自动起，也可以单独启动。
-
-### 启动手柄驱动
-
-```bash
-ros2 run joy joy_node
-```
-
-### 启动手柄转速度节点
-
-```bash
-ros2 run car_teleop joy_to_cmdvel_node
-```
-
-### 指定手柄设备
-
-```bash
-ros2 run joy joy_node --ros-args -p dev:=/dev/input/js0
-```
-
-联调时可检查：
-
-```bash
-ros2 topic echo /joy
-ros2 topic echo /cmd_vel
-```
-
----
-
-## 8. 激光雷达接入
-
-当前工作区已接入：
-- `src/rplidar_ros/` → RPLidar ROS2 驱动
-
-### 单独启动 C1 雷达
-
-```bash
-ros2 launch rplidar_ros rplidar_c1_launch.py serial_port:=/dev/ttyUSB0
-```
-
-### 连 RViz 一起开
-
-```bash
-ros2 launch rplidar_ros view_rplidar_c1_launch.py serial_port:=/dev/ttyUSB0
-```
-
-### 结合当前车体模型做雷达联调
-
-```bash
-ros2 launch car_driver lidar_bringup.launch.py serial_port:=/dev/ttyUSB0
-```
-
-### 上车前先确认设备节点
-
-```bash
-ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
-```
-
-再看内核日志：
-
-```bash
-dmesg | tail -n 50
-```
-
-如果不是 `/dev/ttyUSB0`，启动参数记得改，别拿默认值硬怼。
-
----
-
-## 9. 车端视觉检测
-
-`car_yolo` 当前负责：
-- 从本机摄像头读取图像
-- 在 RK3588 上跑 RKNN YOLO11 推理
-- 发布检测结果、带框图像和 FPS
-- 将车端 RGB-D 检测目标落到 `/yolo/target_points`
-- 将无人机共享目标桥接到车端 `map`
-
-### 启动方式
-
-```bash
-ros2 launch car_yolo yolo_detector.launch.py
-```
-
-### 常用覆盖方式
-
-```bash
-ros2 launch car_yolo yolo_detector.launch.py \
-  camera_device:=/dev/video21 \
-  camera_frame_id:=camera_link \
-  model_path:=/home/elf/rknn/yolo11/model/yolo11n.rknn \
-  target:=rk3588 \
-  timer_hz:=15.0
-```
-
-### 当前输出的话题
-- `/yolo/detections`
-- `/yolo/image_annotated`
-- `/yolo/debug_fps`
-- `/yolo/target_points`
-- `/yolo/target_markers`
-- `/uav/target_points_map`
-- `/uav/target_markers`
-
-### 当前能力边界
-当前已经能稳定解决的是：
-- 目标类别识别
-- 图像中目标框位置输出
-- 时间戳与 frame_id 输出
-- 车端 RGB-D 目标落图 v1
-- 无人机 `/uav/shared/target_pose` 到车端 `map` 的桥接显示
-- 人工确认后通过 Nav2 `/navigate_to_pose` action 导航到目标点
-
-当前还没有直接解决的是：
-- 跨帧稳定跟踪 ID
-- 自动选择目标并自主导航过去
-- 精确的 `map -> uav_map` 标定和长期目标地图融合
-
-更完整说明见：
-- `src/car_yolo/README.md`
-
----
-
-## 10. 当前推荐的联调顺序
-
-如果现场要排查问题，推荐按这个顺序来，别一上来就全开然后怀疑人生。
-
-### 第一步：只查底层链路
-```bash
-ros2 launch car_driver full_bringup.launch.py use_rviz:=false
-```
-确认：
-- 串口能不能通
-- `/odom` 有没有
-- `/scan` 有没有
-
-### 第二步：查 TF 和车模
-```bash
-ros2 launch car_description display.launch.py
-```
-确认：
-- 车模结构是否正常
-- `laser_link`、`imu_link` 是否合理
-
-### 第三步：查定位
-```bash
-ros2 launch car_driver localization_bringup.launch.py \
-  map:=/home/elf/maps/car_map_v1.yaml
-```
-确认：
-- 地图能否正常加载
-- `map` frame 是否存在
-- AMCL 是否工作
-
-### 第四步：查完整导航
-```bash
-ros2 launch car_driver nav_bringup.launch.py \
-  map:=/home/elf/maps/car_map_v1.yaml
-```
-确认：
-- planner / controller 是否正常
-- 全局路径、局部路径、局部代价地图是否合理
-
-### 第五步：再接视觉链
-```bash
-ros2 launch car_yolo yolo_detector.launch.py
-```
-确认：
-- 相机是否正常
-- 推理是否正常
-- `/yolo/detections` 是否稳定输出
-
-### 第六步：接空地协同目标桥接
-
-```bash
-ros2 launch car_driver uav_nav_bridge_bringup.launch.py
-```
-
-确认：
-- `/uav/shared/target_pose` 是否来自无人机
-- `/uav/target_points_map` 是否有 `frame_id: map`
-- RViz 中 `/uav/target_markers` 是否能显示目标
-- 手动确认后使用 `/navigate_to_pose` action 导航
-
-这套顺序的核心原则就一句话：
-
-> **先把底盘、雷达、定位、导航站稳，再谈视觉融合和空地协同。**
-
-别把所有锅同时背在身上，那样只会把自己查麻。
-
----
-
-## 11. 当前几个最值得看的文档
-
-- `src/car_driver/README.md`
-  - 整车 bringup、定位、导航的参数和启动方法
-- `src/car_description/README.md`
-  - 车体模型、TF 挂点、Nav2 参数说明
-- `src/car_yolo/README.md`
-  - 检测链输出语义、与坐标系/导航的衔接关系
-- `TARGET_MAPPING_RECORD.md`
-  - 车端 RGB-D 目标落图与 UAV 目标桥接记录
-
-如果你要快速上手，不想在一堆 launch 和参数里乱翻，先看这三份，能省不少时间。
-
----
-
-## 12. EKF TF 在线建图入口
-
-当需要验证 MPU6050 辅助 yaw / wz 后的建图效果时，使用：
+当前实车工作区通常位于 ELF2：
 
 ```bash
 cd /home/elf/car/car_ws
 source /opt/ros/humble/setup.bash
 source install/setup.bash
+```
+
+## 包清单
+
+### 项目本地功能包
+
+| 包 | 类型 | 主要职责 |
+| --- | --- | --- |
+| `car_description` | `ament_cmake` | 维护无人车 URDF/xacro、UAV 简化模型、RViz 配置和 Nav2 参数文件。 |
+| `car_driver` | `ament_cmake` | 维护底盘串口节点、整车 bringup、雷达/定位/导航/SLAM/UAV 桥接启动入口。 |
+| `car_teleop` | `ament_python` | 将 `/joy` 手柄输入平滑转换为 `/cmd_vel`。 |
+| `car_yolo` | `ament_python` | 维护 RKNN YOLO 检测、车端 RGB-D 目标落图、UAV 目标桥接和 OpenClaw 目标决策节点。 |
+
+### 第三方驱动和模型包
+
+| 包 | 类型 | 主要职责 |
+| --- | --- | --- |
+| `orbbec_camera` | `ament_cmake` | Orbbec RGB-D 相机 ROS2 驱动，提供 `orbbec_camera_node`。 |
+| `orbbec_camera_msgs` | `ament_cmake` | Orbbec 驱动使用的消息和服务定义。 |
+| `orbbec_description` | `ament_cmake` | Orbbec 相机 URDF、mesh 和显示 launch。 |
+| `rplidar_ros` | `ament_cmake` | Slamtec RPLidar ROS2 驱动，发布 `/scan`。 |
+
+### 公共目录
+
+| 路径 | 说明 |
+| --- | --- |
+| `maps/` | 当前仓库内保存的地图 yaml 和配套地图文件。 |
+| `analysis/` | 检查、截图或临时分析输出，不是 ROS2 功能包。 |
+| `TARGET_MAPPING_RECORD.md` | 目标落图和 UAV 目标桥接的阶段记录。 |
+
+## 常用编译
+
+全量编译：
+
+```bash
+cd /home/elf/car/car_ws
+source /opt/ros/humble/setup.bash
+colcon build
+source install/setup.bash
+```
+
+只编译项目本地包：
+
+```bash
+colcon build --packages-select car_description car_driver car_teleop car_yolo
+source install/setup.bash
+```
+
+只编译某个包：
+
+```bash
+colcon build --packages-select car_driver
+source install/setup.bash
+```
+
+## 坐标关系
+
+当前车端主 TF 链由以下几部分组成：
+
+```text
+map -> odom -> base_footprint -> base_link
+```
+
+常见发布者：
+
+| TF | 发布者 |
+| --- | --- |
+| `map -> odom` | AMCL 或 `slam_toolbox`，取决于启动入口。 |
+| `odom -> base_footprint` | `base_driver_node` 或 `robot_localization/ekf_node`，取决于 `publish_odom_tf`/EKF 配置。 |
+| `base_footprint -> base_link` 及传感器固定 frame | `robot_state_publisher` 读取 `car_description/urdf/car.urdf.xacro`。 |
+| `map -> uav_map` | `uav_nav_bridge_bringup.launch.py` 或 `goal_slam_nav_bringup.launch.py` 中的静态 TF。 |
+
+车体模型中已经定义 `imu_link`、`laser_link`、`camera_link`、`camera_depth_optical_frame`、`camera_color_optical_frame` 等 frame。相机和 UAV 地图外参需要按现场安装继续校准，README 只记录当前代码默认值。
+
+## 常用启动入口
+
+### 底盘最小 bringup
+
+只启动车体模型和 `base_driver_node`：
+
+```bash
+ros2 launch car_driver bringup.launch.py
+```
+
+默认底盘串口为 `/dev/ttyS9`，波特率为 `115200`。
+
+### 基础整车 bringup
+
+启动底盘、雷达、可选手柄和可选 RViz：
+
+```bash
+ros2 launch car_driver full_bringup.launch.py
+```
+
+常用覆盖：
+
+```bash
+ros2 launch car_driver full_bringup.launch.py \
+  base_port:=/dev/ttyS9 \
+  lidar_port:=/dev/ttyUSB0 \
+  use_joy:=true \
+  use_rviz:=false
+```
+
+### 定位与导航
+
+AMCL 定位：
+
+```bash
+ros2 launch car_driver localization_bringup.launch.py \
+  map:=/home/elf/maps/car_map_v1.yaml
+```
+
+Nav2 导航：
+
+```bash
+ros2 launch car_driver nav_bringup.launch.py \
+  map:=/home/elf/car/car_ws/maps/my_map.yaml
+```
+
+`nav_bringup.launch.py` 默认使用 `car_description/rviz/nav2_params.yaml`，也支持 `use_ekf_odom:=true` 切换为 EKF 发布 `odom -> base_footprint`。
+
+### 在线 SLAM 与目标驱动导航
+
+只做在线 SLAM/EKF TF 验证：
+
+```bash
 ros2 launch car_driver mapping_ekf_tf.launch.py
 ```
 
-该入口保持 `/odom` 由 `base_driver_node` 发布，但关闭底盘的 `odom -> base_footprint` TF，由 `robot_localization/ekf_node` 发布该 TF；`slam_toolbox` 负责发布 `map -> odom`。不要和 AMCL / Nav2 同时作为 `map -> odom` 发布者运行。
+目标驱动在线 SLAM 导航：
 
-详细参数和录包建议见：
+```bash
+ros2 launch car_driver goal_slam_nav_bringup.launch.py
+```
 
-- `src/car_driver/README.md`
+该入口组合了基础 bringup、EKF、`slam_toolbox`、Nav2、UAV 目标桥接、OpenClaw 目标决策和 `goal_slam_navigator_node.py`。它不启动 AMCL。
+
+### UAV 目标桥接
+
+已知地图导航链 + UAV 共享目标桥接：
+
+```bash
+ros2 launch car_driver uav_nav_bridge_bringup.launch.py
+```
+
+当前默认：
+
+| 参数 | 默认值 |
+| --- | --- |
+| `map` | `/home/elf/car/car_ws/maps/214map.yaml` |
+| `params_file` | `/home/elf/car/car_ws/src/car_description/rviz/nav2_params_natural.yaml` |
+| `use_ekf_odom` | `true` |
+| `publish_odom_tf` | `false` |
+| `uav_map_x` / `uav_map_y` / `uav_map_yaw` | `-0.78` / `-0.61` / `0.0` |
+| `source_target_topic` | `/uav/shared/target_pose` |
+| `target_points_topic` | `/uav/target_points_map` |
+| `target_markers_topic` | `/uav/target_markers` |
+
+## 主要话题
+
+| 话题 | 类型 | 来源 | 用途 |
+| --- | --- | --- | --- |
+| `/cmd_vel` | `geometry_msgs/msg/Twist` | `car_teleop`、Nav2 或其他控制节点 | 底盘速度指令。 |
+| `/odom` | `nav_msgs/msg/Odometry` | `base_driver_node` | STM32 上行速度积分后的里程计。 |
+| `/imu/data_raw` | `sensor_msgs/msg/Imu` | `base_driver_node` | STM32 上行 IMU 原始量换算结果。 |
+| `/wheel_ticks` | `std_msgs/msg/Int32MultiArray` | `base_driver_node` | 上行编码器/速度整型数据。 |
+| `/stm32_debug` | `std_msgs/msg/Int32MultiArray` | `base_driver_node` | `$DBG` 调试帧。 |
+| `/scan` | `sensor_msgs/msg/LaserScan` | `rplidar_node` | Nav2、AMCL、SLAM 使用的激光数据。 |
+| `/yolo/detections` | `vision_msgs/msg/Detection2DArray` | `yolo_detector_node` | 车端目标检测框。 |
+| `/yolo/target_points` | `geometry_msgs/msg/PoseArray` | `target_mapper_node` | RGB-D 目标落图结果。 |
+| `/uav/target_points_map` | `geometry_msgs/msg/PoseArray` | `uav_target_bridge_node` | UAV 共享目标转换到车端 `map` 后的点。 |
+
+## 常用检查指令
+
+```bash
+ros2 node list
+ros2 topic list
+ros2 topic echo /odom --once
+ros2 topic echo /scan --once
+ros2 topic echo /tf --once
+ros2 topic echo /uav/target_points_map --once
+ros2 run tf2_ros tf2_echo odom base_footprint
+ros2 run tf2_ros tf2_echo map uav_map
+```
+
+检查串口设备：
+
+```bash
+ls /dev/ttyUSB* /dev/ttyACM* /dev/ttyS* 2>/dev/null
+dmesg | tail -n 50
+```
+
+## 阅读顺序
+
+接手时建议按下面顺序看：
+
+1. `src/car_driver/README.md`：整车启动、底盘串口、导航、SLAM、UAV 桥接。
+2. `src/car_description/README.md`：车体 TF、URDF、Nav2 参数文件。
+3. `src/car_yolo/README.md`：视觉检测、目标落图、OpenClaw 决策。
+4. `src/car_teleop/README.md`：手柄到 `/cmd_vel`。
+5. `src/rplidar_ros/README.md`、`src/orbbec_camera/README.md`：第三方传感器驱动在本仓库中的使用方式。
